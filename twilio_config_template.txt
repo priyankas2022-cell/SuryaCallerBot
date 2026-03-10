@@ -1,0 +1,4 @@
+# Replace these with your actual Twilio credentials
+TWILIO_ACCOUNT_SID=AC_your_account_sid_here
+TWILIO_AUTH_TOKEN=your_auth_token_here
+TWILIO_PHONE_NUMBER=+1_your_twilio_number

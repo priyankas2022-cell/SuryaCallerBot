@@ -1,0 +1,123 @@
+# SuryaCaller - Complete Python 3.13 Requirements
+# Install with: py -3.13 -m pip install -r requirements.full.txt
+
+# Core web framework
+uvicorn[standard]==0.34.2
+fastapi==0.115.6
+pydantic==2.10.3
+pydantic-settings==2.7.0
+
+# Database
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+psycopg2-binary==2.9.10
+pgvector==0.3.6
+
+# Redis & Queue
+redis==5.2.1
+arq==0.26.3
+
+# Environment
+python-dotenv==1.0.1
+
+# Authentication & Security
+python-jose[cryptography]==5.0.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.2.1
+
+# HTTP Client
+httpx==0.28.1
+aiohttp==3.11.11
+aioboto3==13.1.1
+boto3==1.35.99
+
+# File Handling
+python-multipart==0.0.20
+minio==7.2.15
+
+# Logging & Monitoring
+loguru==0.7.3
+sentry-sdk[fastapi]==2.20.0
+
+# Date/Time
+python-dateutil==2.9.0.post0
+
+# Email validation
+email-validator==2.2.0
+
+# Pipecat Core (with ALL extras)
+pipecat-ai[webrtc,soundfile,openai,azure,cartesia,deepgram,elevenlabs,whisper,assemblyai]
+
+# AI Services
+openai==1.58.1
+anthropic==0.42.0
+google-generativeai==0.8.3
+together==1.3.10
+deep-translator==1.11.4
+
+# Document Processing
+docling==2.76.0
+lxml==5.3.0
+python-pptx==1.0.2
+openpyxl==3.1.5
+
+# Audio Processing
+soundfile==0.13.1
+audioop-lts==0.2.1
+
+# NLP
+nltk==3.9.1
+spacy==3.8.4
+langdetect==1.0.9
+ftfy==6.3.1
+
+# Math/Scientific (required by numba)
+numpy==2.2.1
+scipy==1.15.1
+
+# Numba (pinned version)
+numba==0.61.2
+
+# Image Processing
+Pillow==11.1.0
+
+# Protocol Buffers
+protobuf==5.29.6
+
+# Markdown
+Markdown==3.7
+
+# Audio Utilities
+pyloudnorm==0.1.1
+resampy==0.4.3
+soxr==0.5.0
+
+# Documentation
+docstring-parser==0.16
+
+# File I/O
+aiofiles==24.1.0
+
+# SRT Files
+pysrt==1.1.2
+
+# WebRTC
+aiortc==1.10.1
+
+# Azure Cognitive Services
+azure-cognitiveservices-speech==1.42.0
+
+# Deepgram
+deepgram-sdk==3.9.0
+
+# ElevenLabs
+elevenlabs==1.50.0
+
+# Cartesia  
+cartesia==1.0.0
+
+# AssemblyAI
+assemblyai==0.35.1
+
+# Whisper
+openai-whisper==20240930
