@@ -6,6 +6,7 @@ interface WorkflowContextType {
     saveWorkflow: (updateWorkflowDefinition?: boolean) => Promise<void>;
     documents?: DocumentResponseSchema[];
     tools?: ToolResponse[];
+    refreshDocuments?: () => Promise<void>;
 }
 
 const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined);

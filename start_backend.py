@@ -9,19 +9,23 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Get the directory structure
-current_dir = Path(__file__).parent
-project_root = current_dir.parent
+current_dir = Path(__file__).parent.absolute()
+# project_root = current_dir.parent  # This was incorrect if run from root
 
-# Add project root to Python path
-sys.path.insert(0, str(project_root))
+# Add current dir and pipecat/src to Python path
+sys.path.insert(0, str(current_dir))
+sys.path.insert(0, str(current_dir / "pipecat" / "src"))
+
+# Set PYTHONPATH environment variable for child processes
+os.environ["PYTHONPATH"] = f"{current_dir}{os.pathsep}{current_dir / 'pipecat' / 'src'}"
 
 # Load environment variables from api/.env
 env_file = current_dir / "api" / ".env"
 if env_file.exists():
-    print(f"✅ Loading environment from: {env_file}")
+    print(f"Loading environment from: {env_file}")
     load_dotenv(env_file)
 else:
-    print(f"⚠️ Warning: .env file not found at {env_file}")
+    print(f"Warning: .env file not found at {env_file}")
     print("Using system environment variables")
 
 # Verify critical environment variables
@@ -39,7 +43,7 @@ if missing_vars:
     print(f"\nPlease ensure your .env file contains these variables")
     sys.exit(1)
 
-print(f"\n✅ Environment variables loaded successfully")
+print(f"\nEnvironment variables loaded successfully")
 print(f"   DATABASE_URL: {os.environ.get('DATABASE_URL')[:30]}...")
 print(f"   REDIS_URL: {os.environ.get('REDIS_URL')[:30]}...")
 
@@ -47,7 +51,7 @@ print(f"   REDIS_URL: {os.environ.get('REDIS_URL')[:30]}...")
 import uvicorn
 
 print("\n" + "=" * 70)
-print("🚀 STARTING SURYACALLER BACKEND SERVER")
+print("STARTING SURYACALLER BACKEND SERVER")
 print("=" * 70)
 print(f"\nServer Configuration:")
 print(f"  • Host: 0.0.0.0")

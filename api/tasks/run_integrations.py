@@ -5,9 +5,9 @@ from typing import Any, Dict, Optional
 import httpx
 from loguru import logger
 
-from api.constants import BACKEND_API_ENDPOINT
 from api.db import db_client
 from api.db.models import WorkflowRunModel
+from api.utils.common import get_backend_endpoints
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
 from pipecat.utils.run_context import set_current_run_id
@@ -66,7 +66,7 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
         logger.info(f"Found {len(webhook_nodes)} webhook nodes to execute")
 
         # Step 5: Build render context
-        render_context = _build_render_context(workflow_run, public_token)
+        render_context = await _build_render_context(workflow_run, public_token)
 
         # Step 6: Execute each webhook node
         for node in webhook_nodes:
@@ -88,7 +88,7 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
         raise
 
 
-def _build_render_context(
+async def _build_render_context(
     workflow_run: WorkflowRunModel, public_token: Optional[str] = None
 ) -> Dict[str, Any]:
     """Build the context dict for template rendering.
@@ -114,8 +114,9 @@ def _build_render_context(
 
     # Add public download URLs if token is available
     if public_token:
+        backend_endpoint, _ = await get_backend_endpoints()
         base_url = (
-            f"{BACKEND_API_ENDPOINT}/api/v1/public/download/workflow/{public_token}"
+            f"{backend_endpoint}/api/v1/public/download/workflow/{public_token}"
         )
         context["recording_url"] = (
             f"{base_url}/recording" if workflow_run.recording_url else None

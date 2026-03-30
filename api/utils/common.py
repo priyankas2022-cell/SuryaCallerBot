@@ -98,8 +98,8 @@ async def get_backend_endpoints() -> tuple[str, str]:
     Get the backend endpoint URLs for external access (webhooks, callbacks, WebSocket connections).
 
     Priority:
-        1. BACKEND_API_ENDPOINT environment variable (if set and not localhost)
-        2. Cloudflared Tunnel URLs (fallback for localhost or missing env var)
+        1. Live Tunnel URLs (ngrok or cloudflared) - automatically detected if running
+        2. BACKEND_API_ENDPOINT environment variable (fallback if no tunnel detected)
 
     Protocol Handling:
         1. If URL has http:// - returns http:// and ws://
@@ -113,35 +113,22 @@ async def get_backend_endpoints() -> tuple[str, str]:
         ValueError: If no endpoint URL can be determined or URL is invalid
     """
 
-    # If env var is explicitly set (even to empty/whitespace), validate it
-    if BACKEND_API_ENDPOINT is not None:
-        # Validate - this will raise for empty/whitespace
+    # First priority: Try to detect an active tunnel (ngrok or cloudflared)
+    try:
+        tunnel_urls = await TunnelURLProvider.get_tunnel_urls()
+        if tunnel_urls:
+            logger.info(f"Using automatically detected tunnel: {tunnel_urls[0]}")
+            return tunnel_urls
+    except Exception as e:
+        logger.debug(f"Tunnel detection skipped or failed: {e}")
+
+    # Second priority: Use BACKEND_API_ENDPOINT environment variable
+    if BACKEND_API_ENDPOINT:
+        # If env var is explicitly set, validate it
         _validate_url(BACKEND_API_ENDPOINT)
 
-    if BACKEND_API_ENDPOINT:
-        # Handle localhost/127.0.0.1 special case - use tunnel URL if available
-        if "localhost" in BACKEND_API_ENDPOINT or "127.0.0.1" in BACKEND_API_ENDPOINT:
-            logger.debug(
-                f"BACKEND_API_ENDPOINT is local ({BACKEND_API_ENDPOINT}), checking tunnel URL"
-            )
-            try:
-                tunnel_urls = await TunnelURLProvider.get_tunnel_urls()
-                if tunnel_urls:
-                    logger.debug(
-                        f"Tunnel URLs available, using tunnel URLs instead of localhost"
-                    )
-                    return tunnel_urls
-                else:
-                    logger.debug(
-                        f"Tunnel URLs returned None, proceeding with localhost endpoint"
-                    )
-            except Exception as e:
-                logger.debug(
-                    f"No tunnel URLs available ({e}), proceeding with localhost endpoint"
-                )
-
         try:
-            # Parse the URL to validate and handle protocol
+            # Parse the URL to handle protocol
             scheme = get_scheme(BACKEND_API_ENDPOINT)
 
             if scheme:
@@ -153,25 +140,18 @@ async def get_backend_endpoints() -> tuple[str, str]:
                 ws_url = "ws://" + BACKEND_API_ENDPOINT.rstrip("/")
 
             logger.debug(
-                f"Returning backend URLs - HTTP: {http_url}, WebSocket: {ws_url}"
+                f"Returning backend URLs from env - HTTP: {http_url}, WebSocket: {ws_url}"
             )
             return http_url, ws_url
 
         except Exception as e:
-            # Case 4: Invalid URL format
             raise ValueError(
                 f"Invalid BACKEND_API_ENDPOINT format: '{BACKEND_API_ENDPOINT}' - {str(e)}"
             )
 
-    # Second priority: Query cloudflared tunnel URL when no environment variable is set
-    logger.debug("No BACKEND_API_ENDPOINT set, using tunnel URL")
-    tunnel_urls = await TunnelURLProvider.get_tunnel_urls()
-    if tunnel_urls:
-        logger.debug(f"Retrieved tunnel URLs: {tunnel_urls}")
-        return tunnel_urls
-    else:
-        logger.debug("No tunnel URLs available")
-        raise ValueError(
-            "No tunnel URL available. Please set BACKEND_API_ENDPOINT environment "
-            "variable or ensure cloudflared service is running."
-        )
+    # If we get here, no tunnel and no env var
+    logger.error("No backend endpoint available (no tunnel detected and no BACKEND_API_ENDPOINT set)")
+    raise ValueError(
+        "No backend URL available. Please start ngrok (ngrok http 8000) "
+        "or set BACKEND_API_ENDPOINT environment variable."
+    )

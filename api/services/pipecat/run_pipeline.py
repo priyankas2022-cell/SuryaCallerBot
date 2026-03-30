@@ -505,7 +505,20 @@ async def _run_pipeline(
     stt = create_stt_service(user_config, audio_config, keyterms=keyterms)
     tts = create_tts_service(user_config, audio_config)
     llm = create_llm_service(user_config)
-    
+
+    workflow_graph = WorkflowGraph(
+        ReactFlowDTO.model_validate(workflow.workflow_definition_with_fallback)
+    )
+
+    # Extract embeddings configuration from user config EARLY so it's available for validation
+    embeddings_api_key = None
+    embeddings_model = None
+    embeddings_base_url = None
+    if user_config and user_config.embeddings:
+        embeddings_api_key = user_config.embeddings.api_key
+        embeddings_model = user_config.embeddings.model
+        embeddings_base_url = getattr(user_config.embeddings, "base_url", None)
+
     # Validate knowledge base configuration if nodes have documents
     start_node = workflow_graph.nodes.get(workflow_graph.start_node_id)
     if start_node and start_node.document_uuids:
@@ -518,10 +531,6 @@ async def _run_pipeline(
             logger.info(
                 f"✅ Knowledge base enabled for node '{start_node.name}' with {len(start_node.document_uuids)} document(s)"
             )
-
-    workflow_graph = WorkflowGraph(
-        ReactFlowDTO.model_validate(workflow.workflow_definition_with_fallback)
-    )
 
     # Create in-memory logs buffer early so it can be used by engine callbacks
     in_memory_logs_buffer = InMemoryLogsBuffer(workflow_run_id)
@@ -562,15 +571,6 @@ async def _run_pipeline(
             logger.error(f"Failed to append node transition to logs buffer: {e}")
 
     node_transition_callback = send_node_transition
-
-    # Extract embeddings configuration from user config
-    embeddings_api_key = None
-    embeddings_model = None
-    embeddings_base_url = None
-    if user_config and user_config.embeddings:
-        embeddings_api_key = user_config.embeddings.api_key
-        embeddings_model = user_config.embeddings.model
-        embeddings_base_url = getattr(user_config.embeddings, "base_url", None)
 
     engine = PipecatEngine(
         llm=llm,

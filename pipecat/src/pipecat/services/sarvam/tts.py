@@ -525,14 +525,14 @@ class SarvamHttpTTSService(TTSService):
             base64_audio = response_data["audios"][0]
             audio_data = base64.b64decode(base64_audio)
 
-            # Strip WAV header (first 44 bytes) if present
-            if len(audio_data) > 44 and audio_data.startswith(b"RIFF"):
-                logger.debug("Stripping WAV header from Sarvam audio data")
-                audio_data = audio_data[44:]
+            # Strip WAV header dynamically and extract true sample rate
+            from pipecat.audio.utils import parse_wav_header
+            audio_data, true_rate = parse_wav_header(audio_data)
+            frame_rate = true_rate if true_rate is not None else self.sample_rate
 
             frame = TTSAudioRawFrame(
                 audio=audio_data,
-                sample_rate=self.sample_rate,
+                sample_rate=frame_rate,
                 num_channels=1,
                 context_id=context_id,
             )
@@ -974,8 +974,13 @@ class SarvamTTSService(InterruptibleTTSService):
                     # Check for interruption before processing audio
                     await self.stop_ttfb_metrics()
                     audio = base64.b64decode(msg["data"]["audio"])
+                    
+                    from pipecat.audio.utils import parse_wav_header
+                    audio, true_rate = parse_wav_header(audio)
+                    frame_rate = true_rate if true_rate is not None else self.sample_rate
+                    
                     frame = TTSAudioRawFrame(
-                        audio, self.sample_rate, 1, context_id=self._context_id
+                        audio, frame_rate, 1, context_id=self._context_id
                     )
                     await self.push_frame(frame)
                 elif msg.get("type") == "error":

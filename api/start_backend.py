@@ -2,9 +2,11 @@ import os
 import sys
 from pathlib import Path
 
-# Add the api directory to the path
-api_path = Path(__file__).parent
-sys.path.insert(0, str(api_path))
+# Add the root directory and pipecat/src to the path
+root_path = Path(__file__).parent.parent
+sys.path.insert(0, str(root_path))
+sys.path.insert(0, str(root_path / "pipecat" / "src"))
+os.environ["PYTHONPATH"] = f"{root_path}{os.pathsep}{root_path / 'pipecat' / 'src'}"
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -14,15 +16,16 @@ load_dotenv()
 import uvicorn
 
 if __name__ == "__main__":
-    print("\n🚀 Starting SuryaCaller Backend Server...")
+    backend_url = os.getenv("BACKEND_API_ENDPOINT", "http://localhost:8000")
+    print("\nStarting SuryaCaller Backend Server...")
     print("=" * 60)
-    print("Backend API will be available at: http://localhost:8000")
-    print("Health check: http://localhost:8000/health")
+    print(f"Backend API available at: {backend_url}")
+    print(f"Health check: {backend_url}/api/v1/health")
     print("=" * 60)
     print("\nServer starting...\n")
     
     uvicorn.run(
-        "app:app",
+        "api.app:app",
         host="0.0.0.0",
         port=8000,
         reload=True,

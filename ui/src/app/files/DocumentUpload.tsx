@@ -19,103 +19,120 @@ interface DocumentUploadProps {
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 
-// File types handled with rich structural parsing (docling)
-const DOCLING_TYPES = ['.pdf', '.docx', '.doc', '.pptx', '.ppt', '.xlsx', '.xls', '.html', '.htm', '.md'];
-// All other file types are processed as plain text
-const SUPPORTED_TYPES_LABEL = `${DOCLING_TYPES.join(', ')}, and any text-based file (.php, .py, .js, .ts, .json, .csv, .xml, .yaml, .txt, etc.)`;
-
 export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatusText, setUploadStatusText] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const validateFile = (file: File): boolean => {
     // Validate file size only — all file types are accepted
     if (file.size > MAX_FILE_SIZE) {
-      toast.error('File size must be less than 100MB');
+      toast.error(`File size for ${file.name} must be less than 100MB`);
       return false;
     }
     return true;
   };
 
-  const uploadFile = async (file: File) => {
-    if (!validateFile(file)) return;
+  const uploadFiles = async (files: File[]) => {
+    const validFiles = files.filter(validateFile);
+    if (validFiles.length === 0) return;
 
     setUploading(true);
     setUploadProgress(0);
 
+    let successfulUploads = 0;
+    const totalFiles = validFiles.length;
+
     try {
-      // Step 1: Request presigned upload URL
-      logger.info('Requesting presigned upload URL for:', file.name);
-      const uploadUrlResponse = await getUploadUrlApiV1KnowledgeBaseUploadUrlPost({
-        body: {
-          filename: file.name,
-          mime_type: file.type || 'application/octet-stream',
-          custom_metadata: {
-            original_filename: file.name,
-            uploaded_at: new Date().toISOString(),
+      for (let i = 0; i < totalFiles; i++) {
+        const file = validFiles[i];
+        const currentFileProgressBase = (i / totalFiles) * 100;
+        const perFileProgressStep = 100 / totalFiles;
+
+        setUploadStatusText(`Uploading ${i + 1} of ${totalFiles}: ${file.name}`);
+
+        // Step 1: Request presigned upload URL
+        logger.info('Requesting presigned upload URL for:', file.name);
+        const uploadUrlResponse = await getUploadUrlApiV1KnowledgeBaseUploadUrlPost({
+          body: {
+            filename: file.name,
+            mime_type: file.type || 'application/octet-stream',
+            custom_metadata: {
+              original_filename: file.name,
+              uploaded_at: new Date().toISOString(),
+            },
           },
-        },
-      });
-
-      if (uploadUrlResponse.error || !uploadUrlResponse.data) {
-        throw new Error('Failed to get upload URL');
-      }
-
-      const uploadData: DocumentUploadResponseSchema = uploadUrlResponse.data;
-      logger.info('Received presigned URL, uploading file...');
-
-      // Step 2: Upload file directly to S3/MinIO using PUT
-      logger.info('Received presigned URL, uploading file...', uploadData.upload_url);
-
-      setUploadProgress(25);
-
-      const uploadResponse = await fetch(uploadData.upload_url, {
-        method: 'PUT',
-        body: file,
-        headers: {
-          'Content-Type': file.type || 'application/octet-stream',
-        },
-      });
-
-      if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text().catch(() => 'Unknown error');
-        logger.error('MinIO upload failed:', {
-          status: uploadResponse.status,
-          statusText: uploadResponse.statusText,
-          body: errorText,
-          url: uploadData.upload_url,
         });
-        throw new Error(`Failed to upload file to storage (${uploadResponse.status}): ${errorText}`);
+
+        if (uploadUrlResponse.error || !uploadUrlResponse.data) {
+          logger.error(`Failed to get upload URL for ${file.name}`);
+          toast.error(`Failed to start upload for ${file.name}`);
+          continue; // Skip to next file
+        }
+
+        const uploadData: DocumentUploadResponseSchema = uploadUrlResponse.data;
+        logger.info('Received presigned URL, uploading file...');
+
+        setUploadProgress(currentFileProgressBase + (perFileProgressStep * 0.25));
+
+        // Step 2: Upload file directly to S3/MinIO using PUT
+        const uploadResponse = await fetch(uploadData.upload_url, {
+          method: 'PUT',
+          body: file,
+          headers: {
+            'Content-Type': file.type || 'application/octet-stream',
+          },
+        });
+
+        if (!uploadResponse.ok) {
+          const errorText = await uploadResponse.text().catch(() => 'Unknown error');
+          logger.error('MinIO upload failed:', {
+            status: uploadResponse.status,
+            statusText: uploadResponse.statusText,
+            body: errorText,
+            url: uploadData.upload_url,
+          });
+          toast.error(`Failed to upload ${file.name}`);
+          continue; // Skip to next file
+        }
+
+        setUploadProgress(currentFileProgressBase + (perFileProgressStep * 0.75));
+        logger.info(`File ${file.name} uploaded successfully, triggering processing...`);
+
+        // Step 3: Trigger document processing
+        const processResponse = await processDocumentApiV1KnowledgeBaseProcessDocumentPost({
+          body: {
+            document_uuid: uploadData.document_uuid,
+            s3_key: uploadData.s3_key,
+          },
+        });
+
+        if (processResponse.error) {
+          logger.error(`Failed to trigger processing for ${file.name}`);
+          toast.error(`Failed to process ${file.name}`);
+          continue; // Skip to next file
+        }
+
+        successfulUploads++;
+        setUploadProgress(currentFileProgressBase + perFileProgressStep);
+        logger.info(`Document processing triggered successfully for ${file.name}`);
       }
 
-      setUploadProgress(75);
-      logger.info('File uploaded successfully, triggering processing...');
-
-      // Step 3: Trigger document processing
-      const processResponse = await processDocumentApiV1KnowledgeBaseProcessDocumentPost({
-        body: {
-          document_uuid: uploadData.document_uuid,
-          s3_key: uploadData.s3_key,
-        },
-      });
-
-      if (processResponse.error) {
-        throw new Error('Failed to trigger processing');
+      if (successfulUploads > 0) {
+        toast.success(`Successfully uploaded ${successfulUploads} document${successfulUploads > 1 ? 's' : ''}. Processing started.`);
+        onUploadSuccess();
+      } else {
+        toast.error('Failed to upload any documents.');
       }
-
-      setUploadProgress(100);
-      logger.info('Document processing triggered successfully');
-
-      toast.success(`File uploaded: ${file.name}. Processing started.`);
-      onUploadSuccess();
     } catch (error) {
-      logger.error('Error uploading document:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to upload document');
+      logger.error('Error uploading documents:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to upload documents');
     } finally {
       setUploading(false);
       setUploadProgress(0);
+      setUploadStatusText('');
       // Reset file input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -124,9 +141,9 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
   };
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      await uploadFile(file);
+    const files = Array.from(event.target.files || []);
+    if (files.length > 0) {
+      await uploadFiles(files);
     }
   };
 
@@ -145,9 +162,9 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
     e.stopPropagation();
     setDragActive(false);
 
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      await uploadFile(file);
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length > 0) {
+      await uploadFiles(files);
     }
   };
 
@@ -163,6 +180,7 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
         onChange={handleFileSelect}
         className="hidden"
         disabled={uploading}
+        multiple
       />
 
       {/* Drag and Drop Area */}
@@ -180,7 +198,7 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
       >
         <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
         <p className="text-lg font-medium mb-2">
-          {uploading ? 'Uploading...' : 'Drop your document here'}
+          {uploading ? 'Uploading...' : 'Drop your documents here'}
         </p>
         <p className="text-sm text-muted-foreground mb-4">
           or click to browse
@@ -194,8 +212,8 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
       {uploading && (
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
-            <span>Uploading...</span>
-            <span>{uploadProgress}%</span>
+            <span>{uploadStatusText || 'Uploading...'}</span>
+            <span>{Math.round(uploadProgress)}%</span>
           </div>
           <Progress value={uploadProgress} />
         </div>
@@ -209,7 +227,7 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
           onClick={handleButtonClick}
           disabled={uploading}
         >
-          {uploading ? 'Uploading...' : 'Choose File'}
+          {uploading ? 'Uploading...' : 'Choose Files'}
         </Button>
       </div>
     </div>

@@ -336,7 +336,7 @@ export default function ConfigureTelephonyPage() {
                       /><br/><br/>
                       Visit{" "}
                       <a
-                        href="https://cockpit.cloudonix.io/onboarding?affiliate=DOGRAH"
+                        href="https://cockpit.cloudonix.io/onboarding?affiliate=SURYACALLER"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-blue-600 hover:underline"
@@ -397,7 +397,7 @@ export default function ConfigureTelephonyPage() {
                       src={
                         selectedProvider === "twilio"
                           ? "https://www.tella.tv/video/cmgbvzkrt00jk0clacu16blm3/embed?b=0&title=1&a=1&loop=0&t=0&muted=0&wt=0"
-                          : "https://www.tella.tv/video/configuring-telephony-on-dograh-with-vonage-3wvo/embed?b=0&title=1&a=1&loop=0&t=0&muted=0&wt=0"
+                          : "https://www.tella.tv/video/configuring-telephony-on-suryacaller-with-vonage-3wvo/embed?b=0&title=1&a=1&loop=0&t=0&muted=0&wt=0"
                       }
                       allowFullScreen
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -864,7 +864,7 @@ export default function ConfigureTelephonyPage() {
                         <Label htmlFor="app_name">Stasis App Name</Label>
                         <Input
                           id="app_name"
-                          placeholder="dograh"
+                          placeholder="suryacaller"
                           {...register("app_name", {
                             required:
                               selectedProvider === "ari"
@@ -911,7 +911,7 @@ export default function ConfigureTelephonyPage() {
                         <Label htmlFor="ws_client_name">WebSocket Client Name</Label>
                         <Input
                           id="ws_client_name"
-                          placeholder="dograh_staging"
+                          placeholder="suryacaller_staging"
                           {...register("ws_client_name")}
                         />
                         <p className="text-xs text-muted-foreground">

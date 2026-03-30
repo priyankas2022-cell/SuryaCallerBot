@@ -24,7 +24,7 @@ import soxr
 
 from pipecat.audio.resamplers.base_audio_resampler import BaseAudioResampler
 
-CLEAR_STREAM_AFTER_SECS = 0.2
+CLEAR_STREAM_AFTER_SECS = 5.0
 
 
 class SOXRStreamAudioResampler(BaseAudioResampler):

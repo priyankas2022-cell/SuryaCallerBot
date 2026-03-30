@@ -126,7 +126,7 @@ export function EmbedDialog({
                             buttonColor,
                             size: "medium",
                             autoStart: false,
-                            containerId: embedMode === "inline" ? "dograh-inline-container" : undefined,
+                            containerId: embedMode === "inline" ? "suryacaller-inline-container" : undefined,
                         },
                         usage_limit: null,
                         expires_in_days: null,

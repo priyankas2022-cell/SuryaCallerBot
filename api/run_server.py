@@ -38,13 +38,14 @@ print(f"✅ REDIS_URL: {os.environ['REDIS_URL'][:40]}...")
 # Start server
 import uvicorn
 
-print("\n" + "="*60)
-print("🚀 STARTING BACKEND SERVER")
-print("="*60)
-print(f"📍 URL: http://localhost:8000")
-print(f"📖 API: http://localhost:8000/api/v1")
-print(f"🏥 Health: http://localhost:8000/health")
-print(f"📚 Docs: http://localhost:8000/docs")
+    backend_url = os.getenv("BACKEND_API_ENDPOINT", "http://localhost:8000")
+    print("\n" + "="*60)
+    print("🚀 STARTING BACKEND SERVER")
+    print("="*60)
+    print(f"📍 URL: {backend_url}")
+    print(f"📖 API: {backend_url}/api/v1")
+    print(f"🏥 Health: {backend_url}/health")
+    print(f"📚 Docs: {backend_url}/docs")
 print("="*60)
 print()
 

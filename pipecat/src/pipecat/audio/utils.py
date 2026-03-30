@@ -15,6 +15,7 @@ import audioop
 
 import numpy as np
 import pyloudnorm as pyln
+from loguru import logger
 
 from pipecat.audio.resamplers.base_audio_resampler import BaseAudioResampler
 from pipecat.audio.resamplers.soxr_resampler import SOXRAudioResampler
@@ -75,6 +76,88 @@ def create_stream_resampler(**kwargs) -> BaseAudioResampler:
         A configured SOXRStreamAudioResampler instance.
     """
     return SOXRStreamAudioResampler(**kwargs)
+
+
+def parse_wav_header(audio: bytes) -> tuple[bytes, int | None]:
+    """Robustly parse and strip a WAV header, returning structural sample rate.
+    
+    Checks if the bytes start with RIFF/WAVE, securely parses 'fmt ' and 'data' chunks
+    to extract actual sample rate, and calculates exact data offset.
+    
+    Args:
+        audio: Raw audio byte string.
+    
+    Returns:
+        Tuple of (stripped_audio_bytes, actual_sample_rate).
+        If no valid header is found, returns (audio, None).
+    """
+    if len(audio) < 44 or not audio.startswith(b"RIFF"):
+        return audio, None
+        
+    try:
+        # RIFF chunks must have "WAVE" at byte 8
+        if audio[8:12] != b"WAVE":
+            return audio, None
+            
+        offset = 12
+        sample_rate = None
+        data_offset = None
+        
+        # Traverse chunks securely up to 512 bytes avoiding infinite loops
+        while offset + 8 <= len(audio) and offset < 512:
+            chunk_id = audio[offset:offset+4]
+            chunk_size = int.from_bytes(audio[offset+4:offset+8], "little")
+            
+            if chunk_id == b"fmt ":
+                # Format chunk: offset+8 is format_tag, offset+10 is channels
+                # offset+12 to +16 is sample_rate
+                channels = int.from_bytes(audio[offset+10:offset+12], "little")
+                sample_rate = int.from_bytes(audio[offset+12:offset+16], "little")
+                bits_per_sample = int.from_bytes(audio[offset+22:offset+24], "little")
+                logger.debug(f"[Audio Pipeline] parse_wav_header: Found 'fmt ' chunk: {sample_rate}Hz, {channels}ch, {bits_per_sample}bps")
+            elif chunk_id == b"data":
+                # Data chunk header takes 8 bytes (id + size), raw audio immediately follows
+                data_offset = offset + 8
+                break
+                
+            offset += 8 + chunk_size
+            
+        if data_offset is not None:
+            logger.debug(f"[Audio Pipeline] parse_wav_header: Successfully parsed WAV. Slicing at offset {data_offset}. True rate: {sample_rate}Hz")
+            return audio[data_offset:], sample_rate
+            
+        logger.warning("[Audio Pipeline] parse_wav_header: Found 'RIFF' but missed 'data' chunk! Returning safe fallback.")
+        return audio, sample_rate
+        
+    except Exception as e:
+        logger.error(f"[Audio Pipeline] parse_wav_header: Structural parse failure: {e}. Defaulting to 44-byte slice.")
+        return audio[44:], None
+
+def validate_audio_chunk(audio: bytes, expected_rate: int = 8000, is_mulaw: bool = True) -> bool:
+    """Validate Twilio audio chunk payload before sending over Transport.
+    
+    We prefer sending ~20ms chunks to Twilio.
+    For 8kHz mulaw, this is exactly 160 bytes.
+    """
+    if not audio:
+        logger.warning("[Audio Pipeline] validate_audio_chunk: Chunk is completely empty (0 bytes). Dropping.")
+        return False
+        
+    expected_chunk_size = int((expected_rate * 20) / 1000)
+    if not is_mulaw:
+        expected_chunk_size *= 2  # 16-bit is 2 bytes per sample
+        
+    if len(audio) != expected_chunk_size:
+        logger.debug(f"[Audio Pipeline] validate_audio_chunk: Expected {expected_chunk_size} bytes (20ms), got {len(audio)} bytes. Proceeding anyway.")
+        if len(audio) == 0:
+            return False
+            
+    header_check = audio.startswith(b"RIFF")
+    if header_check:
+        logger.error("[Audio Pipeline] validate_audio_chunk: FATAL: Chunk still contains WAV header! Rejecting.")
+        return False
+        
+    return True
 
 
 def mix_audio(audio1: bytes, audio2: bytes) -> bytes:
@@ -237,6 +320,52 @@ async def pcm_to_ulaw(pcm_bytes: bytes, in_rate: int, out_rate: int, resampler: 
     out_ulaw_bytes = audioop.lin2ulaw(in_pcm_bytes, 2)
 
     return out_ulaw_bytes
+
+
+async def pcm16_to_mulaw(pcm_bytes: bytes, in_rate: int, out_rate: int, resampler: BaseAudioResampler) -> bytes:
+    """Convert PCM16 audio to μ-law and safely resample (with explicit logging)."""
+    original_size = len(pcm_bytes)
+    first_16_hex = pcm_bytes[:16].hex() if original_size >= 16 else pcm_bytes.hex()
+    
+    if original_size == 0:
+        return b""
+        
+    # Resample
+    in_pcm_bytes = await resampler.resample(pcm_bytes, in_rate, out_rate)
+    resampler_len = len(in_pcm_bytes)
+    
+    # Backup resampler condition natively handled inside try/except block upstream
+    # Convert PCM to μ-law
+    out_ulaw_bytes = audioop.lin2ulaw(in_pcm_bytes, 2)
+    final_size = len(out_ulaw_bytes)
+    
+    logger.debug(
+        f"[Audio Pipeline] pcm16_to_mulaw: size_in={original_size}B, "
+        f"hex_start={first_16_hex}, rate_in={in_rate}Hz, rate_out={out_rate}Hz, "
+        f"channels=1, codec_out=mulaw, resampled_len={resampler_len}B, size_out={final_size}B"
+    )
+    return out_ulaw_bytes
+
+async def mulaw_to_pcm16(ulaw_bytes: bytes, in_rate: int, out_rate: int, resampler: BaseAudioResampler) -> bytes:
+    """Convert μ-law to PCM16 audio and safely resample (with explicit logging)."""
+    original_size = len(ulaw_bytes)
+    first_16_hex = ulaw_bytes[:16].hex() if original_size >= 16 else ulaw_bytes.hex()
+    
+    if original_size == 0:
+        return b""
+        
+    in_pcm_bytes = audioop.ulaw2lin(ulaw_bytes, 2)
+    unencoded_len = len(in_pcm_bytes)
+    
+    out_pcm_bytes = await resampler.resample(in_pcm_bytes, in_rate, out_rate)
+    final_size = len(out_pcm_bytes)
+    
+    logger.debug(
+        f"[Audio Pipeline] mulaw_to_pcm16: size_in={original_size}B, "
+        f"hex_start={first_16_hex}, rate_in={in_rate}Hz, rate_out={out_rate}Hz, "
+        f"channels=1, codec_out=pcm16, unencoded_len={unencoded_len}B, size_out={final_size}B"
+    )
+    return out_pcm_bytes
 
 
 async def alaw_to_pcm(

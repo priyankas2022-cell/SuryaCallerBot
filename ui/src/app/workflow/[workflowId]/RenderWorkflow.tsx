@@ -6,7 +6,7 @@ import {
     Panel,
     ReactFlow,
 } from "@xyflow/react";
-import { BookA, BrushCleaning, Maximize2, Minus, Plus, Rocket, Settings, Variable } from 'lucide-react';
+import { BookA, BrushCleaning, Maximize2, Minus, Phone, Plus, Rocket, Settings, Variable } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { listDocumentsApiV1KnowledgeBaseDocumentsGet, listToolsApiV1ToolsGet } from '@/client';
@@ -101,30 +101,37 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
         user,
     });
 
+    // Function to fetch or refresh documents
+    const refreshDocuments = React.useCallback(async () => {
+        try {
+            const documentsResponse = await listDocumentsApiV1KnowledgeBaseDocumentsGet({
+                query: { limit: 100 },
+            });
+            if (documentsResponse.data) {
+                setDocuments(documentsResponse.data.documents);
+            }
+        } catch (error) {
+            console.error('Failed to fetch documents:', error);
+        }
+    }, []);
+
     // Fetch documents and tools once for the entire workflow
     useEffect(() => {
         const fetchData = async () => {
             try {
-                // Fetch documents
-                const documentsResponse = await listDocumentsApiV1KnowledgeBaseDocumentsGet({
-                    query: { limit: 100 },
-                });
-                if (documentsResponse.data) {
-                    setDocuments(documentsResponse.data.documents);
-                }
-
                 // Fetch tools
                 const toolsResponse = await listToolsApiV1ToolsGet({});
                 if (toolsResponse.data) {
                     setTools(toolsResponse.data);
                 }
             } catch (error) {
-                console.error('Failed to fetch documents and tools:', error);
+                console.error('Failed to fetch tools:', error);
             }
         };
 
+        refreshDocuments();
         fetchData();
-    }, []);
+    }, [refreshDocuments]);
 
     // Memoize defaultEdgeOptions to prevent unnecessary re-renders
     const defaultEdgeOptions = useMemo(() => ({
@@ -136,24 +143,36 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
     const workflowContextValue = useMemo(() => ({
         saveWorkflow,
         documents,
-        tools
-    }), [saveWorkflow, documents, tools]);
+        tools,
+        refreshDocuments
+    }), [saveWorkflow, documents, tools, refreshDocuments]);
 
     return (
         <WorkflowProvider value={workflowContextValue}>
             <div className="flex flex-col h-screen">
                 {/* New Workflow Editor Header */}
-                <WorkflowEditorHeader
-                    workflowName={workflowName}
-                    isDirty={isDirty}
-                    workflowValidationErrors={workflowValidationErrors}
-                    rfInstance={rfInstance}
-                    onRun={onRun}
-                    workflowId={workflowId}
-                    saveWorkflow={saveWorkflow}
-                    user={user}
-                    onPhoneCallClick={() => setIsPhoneCallDialogOpen(true)}
-                />
+                <div className="flex items-center gap-2 px-4 py-2 bg-background border-b">
+                    <WorkflowEditorHeader
+                        workflowName={workflowName}
+                        isDirty={isDirty}
+                        workflowValidationErrors={workflowValidationErrors}
+                        rfInstance={rfInstance}
+                        onRun={onRun}
+                        workflowId={workflowId}
+                        saveWorkflow={saveWorkflow}
+                        user={user}
+                        onPhoneCallClick={() => setIsPhoneCallDialogOpen(true)}
+                    />
+                    <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => setIsPhoneCallDialogOpen(true)}
+                        className="gap-2"
+                    >
+                        <Phone className="h-4 w-4" />
+                        <span>Make Call</span>
+                    </Button>
+                </div>
 
                 {/* Workflow Canvas */}
                 <div className="flex-1 relative">

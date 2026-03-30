@@ -40,7 +40,7 @@ export default function OverviewPage() {
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
-                            <Button asChild>
+                            <Button asChild className="bg-yellow-400 hover:bg-yellow-500 text-black">
                                 <Link href="/workflow">
                                     Go to Agents
                                 </Link>
@@ -56,7 +56,7 @@ export default function OverviewPage() {
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
-                            <Button asChild variant="outline">
+                            <Button asChild className="bg-yellow-400 hover:bg-yellow-500 text-black">
                                 <Link href="/model-configurations">
                                     Configure Models
                                 </Link>
@@ -75,7 +75,7 @@ export default function OverviewPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="flex flex-wrap gap-4">
-                            <Button asChild variant="outline">
+                            <Button asChild className="bg-yellow-400 hover:bg-yellow-500 text-black">
                                 <a
                                     href="https://docs.suryacaller.com"
                                     target="_blank"
@@ -84,9 +84,9 @@ export default function OverviewPage() {
                                     Documentation
                                 </a>
                             </Button>
-                            <Button asChild variant="outline">
+                            <Button asChild className="bg-yellow-400 hover:bg-yellow-500 text-black">
                                 <a
-                                    href="https://github.com/dograh-hq/dograh/issues"
+                                    href="https://github.com/suryacaller-hq/suryacaller/issues"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                 >

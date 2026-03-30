@@ -23,18 +23,73 @@ class TunnelURLProvider:
             ValueError: If no tunnel URL can be determined
         """
 
+        # Try to get URL from ngrok first (user preference)
+        try:
+            urls = await cls._get_ngrok_urls()
+            if urls:
+                logger.info(f"Using ngrok tunnel: {urls[0]}")
+                return urls
+        except Exception as e:
+            logger.debug(f"Failed to get tunnel URL from ngrok: {e}")
+
         try:
             # Try to get URL from cloudflared metrics
             urls = await cls._get_cloudflared_urls()
             if urls:
+                logger.info(f"Using cloudflared tunnel: {urls[0]}")
                 return urls
         except Exception as e:
             logger.warning(f"Failed to get tunnel URL from cloudflared: {e}")
 
         raise ValueError(
             "No tunnel URL available. Please set BACKEND_API_ENDPOINT environment "
-            "variable or ensure cloudflared service is running."
+            "variable or ensure ngrok or cloudflared service is running."
         )
+
+    @classmethod
+    async def _get_ngrok_urls(cls) -> Optional[tuple[str, str]]:
+        """
+        Query ngrok local API to get the tunnel URLs.
+
+        Returns:
+            Optional[tuple[str, str]]: (https_url, wss_url) with full protocols, or None if not found
+        """
+        try:
+            # ngrok local API endpoint - configurable for Docker environments
+            import os
+            ngrok_api_url = os.getenv("NGROK_API_URL", "http://127.0.0.1:4040/api/tunnels")
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    ngrok_api_url, timeout=aiohttp.ClientTimeout(total=2)
+                ) as response:
+                    if response.status != 200:
+                        return None
+
+                    data = await response.json()
+                    tunnels = data.get("tunnels", [])
+
+                    # Look for an active public HTTPS tunnel
+                    for tunnel in tunnels:
+                        public_url = tunnel.get("public_url", "")
+                        if public_url.startswith("https://"):
+                            hostname = public_url.replace("https://", "").rstrip("/")
+                            return f"https://{hostname}", f"wss://{hostname}"
+                        elif public_url.startswith("http://") and not any(
+                            t.get("public_url", "").startswith("https://")
+                            for t in tunnels
+                        ):
+                            # Fallback to http if no https is found
+                            hostname = public_url.replace("http://", "").rstrip("/")
+                            return f"http://{hostname}", f"ws://{hostname}"
+
+                    return None
+
+        except (asyncio.TimeoutError, aiohttp.ClientError):
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error getting ngrok URL: {e}")
+            return None
 
     @classmethod
     async def _get_cloudflared_urls(cls) -> Optional[tuple[str, str]]:

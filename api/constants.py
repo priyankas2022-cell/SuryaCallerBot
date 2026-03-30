@@ -18,8 +18,8 @@ ENABLE_TRACING = os.getenv("ENABLE_TRACING", "false").lower() == "true"
 ENABLE_RNNOISE = os.getenv("ENABLE_RNNOISE", "false").lower() == "true"
 
 # URLs for deployment
-BACKEND_API_ENDPOINT = os.getenv("BACKEND_API_ENDPOINT", "http://localhost:8000")
-UI_APP_URL = os.getenv("UI_APP_URL", "http://localhost:3010")
+BACKEND_API_ENDPOINT = os.getenv("BACKEND_API_ENDPOINT", "https://latesha-lineable-sharyn.ngrok-free.dev")
+UI_APP_URL = os.getenv("UI_APP_URL", "http://localhost:3000")
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 REDIS_URL = os.environ["REDIS_URL"]

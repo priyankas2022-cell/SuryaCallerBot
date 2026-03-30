@@ -14,7 +14,7 @@ import aiohttp
 from loguru import logger
 
 from pipecat.audio.dtmf.types import KeypadEntry
-from pipecat.audio.utils import create_stream_resampler, pcm_to_ulaw, ulaw_to_pcm
+from pipecat.audio.utils import create_stream_resampler, pcm16_to_mulaw, mulaw_to_pcm16, validate_audio_chunk
 from pipecat.frames.frames import (
     AudioRawFrame,
     CancelFrame,
@@ -160,11 +160,15 @@ class TwilioFrameSerializer(FrameSerializer):
             data = frame.audio
 
             # Output: Convert PCM at frame's rate to 8kHz μ-law for Twilio
-            serialized_data = await pcm_to_ulaw(
+            serialized_data = await pcm16_to_mulaw(
                 data, frame.sample_rate, self._twilio_sample_rate, self._output_resampler
             )
             if serialized_data is None or len(serialized_data) == 0:
                 # Ignoring in case we don't have audio
+                return None
+                
+            if not validate_audio_chunk(serialized_data, self._twilio_sample_rate, is_mulaw=True):
+                # Validation failed (e.g., zero bytes, WAV header passed through). We drop chunk.
                 return None
 
             payload = base64.b64encode(serialized_data).decode("utf-8")
@@ -307,7 +311,7 @@ class TwilioFrameSerializer(FrameSerializer):
             payload = base64.b64decode(payload_base64)
 
             # Input: Convert Twilio's 8kHz μ-law to PCM at pipeline input rate
-            deserialized_data = await ulaw_to_pcm(
+            deserialized_data = await mulaw_to_pcm16(
                 payload, self._twilio_sample_rate, self._sample_rate, self._input_resampler
             )
             if deserialized_data is None or len(deserialized_data) == 0:

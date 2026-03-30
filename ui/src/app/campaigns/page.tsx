@@ -100,7 +100,7 @@ export default function CampaignsPage() {
                     <h1 className="text-3xl font-bold mb-2">Campaigns</h1>
                     <p>Manage your bulk workflow execution campaigns</p>
                 </div>
-                    <Button onClick={handleCreateCampaign}>
+                    <Button onClick={handleCreateCampaign} className="bg-yellow-400 hover:bg-yellow-500 text-black">
                         <Plus className="h-4 w-4 mr-2" />
                         Create Campaign
                     </Button>
@@ -120,7 +120,7 @@ export default function CampaignsPage() {
                                     <div key={i} className="h-12 bg-muted rounded"></div>
                                 ))}
                             </div>
-                        ) : campaignsData && campaignsData.campaigns.length > 0 ? (
+                        ) : campaignsData?.campaigns && campaignsData.campaigns.length > 0 ? (
                             <div className="overflow-x-auto">
                                 <Table>
                                     <TableHeader>
@@ -167,7 +167,7 @@ export default function CampaignsPage() {
                         ) : (
                             <div className="text-center py-8">
                                 <p className="mb-4">No campaigns found</p>
-                                <Button onClick={handleCreateCampaign} variant="outline">
+                                <Button onClick={handleCreateCampaign} className="bg-yellow-400 hover:bg-yellow-500 text-black">
                                     <Plus className="h-4 w-4 mr-2" />
                                     Create your first campaign
                                 </Button>

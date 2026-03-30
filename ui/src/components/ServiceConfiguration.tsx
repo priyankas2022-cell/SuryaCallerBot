@@ -158,7 +158,8 @@ const VOICE_DISPLAY_NAMES: Record<string, string> = {
 export default function ServiceConfiguration() {
     const [apiError, setApiError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
-    const { userConfig, saveUserConfig } = useUserConfig();
+    const { userConfig, saveUserConfig, loading: contextLoading, error: contextError } = useUserConfig();
+    const [isLoading, setIsLoading] = useState(true);
     const [schemas, setSchemas] = useState<Record<ServiceSegment, Record<string, ProviderSchema>>>({
         llm: {},
         tts: {},
@@ -187,56 +188,64 @@ export default function ServiceConfiguration() {
     useEffect(() => {
         const fetchConfigurations = async () => {
             const response = await getDefaultConfigurationsApiV1UserConfigurationsDefaultsGet();
+            console.log("Default configurations response:", response);
+            
             if (response.data) {
-                setSchemas({
-                    llm: response.data.llm as Record<string, ProviderSchema>,
-                    tts: response.data.tts as Record<string, ProviderSchema>,
-                    stt: response.data.stt as Record<string, ProviderSchema>,
-                    embeddings: response.data.embeddings as Record<string, ProviderSchema>
-                });
-            } else {
-                console.error("Failed to fetch configurations");
-                return;
-            }
+                const fetchedSchemas = {
+                    llm: (response.data.llm || {}) as Record<string, ProviderSchema>,
+                    tts: (response.data.tts || {}) as Record<string, ProviderSchema>,
+                    stt: (response.data.stt || {}) as Record<string, ProviderSchema>,
+                    embeddings: (response.data.embeddings || {}) as Record<string, ProviderSchema>
+                };
+                setSchemas(fetchedSchemas);
+                
+                const default_providers = response.data.default_providers || {};
+                const selectedProviders: Record<ServiceSegment, string> = {
+                    llm: default_providers.llm || Object.keys(fetchedSchemas.llm)[0] || "",
+                    tts: default_providers.tts || Object.keys(fetchedSchemas.tts)[0] || "",
+                    stt: default_providers.stt || Object.keys(fetchedSchemas.stt)[0] || "",
+                    embeddings: default_providers.embeddings || Object.keys(fetchedSchemas.embeddings)[0] || ""
+                };
 
-            const defaultValues: Record<string, string | number | boolean> = {};
-            const selectedProviders: Record<ServiceSegment, string> = {
-                llm: response.data.default_providers.llm,
-                tts: response.data.default_providers.tts,
-                stt: response.data.default_providers.stt,
-                embeddings: response.data.default_providers.embeddings
-            };
+                const defaultValues: Record<string, string | number | boolean> = {};
 
-            const setServicePropertyValues = (service: ServiceSegment) => {
-                if (userConfig?.[service]?.provider) {
-                    Object.entries(userConfig?.[service]).forEach(([field, value]) => {
-                        if (field !== "provider") {
-                            defaultValues[`${service}_${field}`] = value;
-                        }
-                    });
-                    selectedProviders[service] = userConfig?.[service]?.provider as string;
-                } else {
-                    const properties = response.data[service]?.[selectedProviders[service]]?.properties as Record<string, SchemaProperty>;
-                    if (properties) {
-                        Object.entries(properties).forEach(([field, schema]) => {
-                            if (field !== "provider" && schema.default) {
-                                defaultValues[`${service}_${field}`] = schema.default;
+                const setServicePropertyValues = (service: ServiceSegment) => {
+                    if (userConfig?.[service]) {
+                        Object.entries(userConfig[service]).forEach(([field, value]) => {
+                            if (field !== "provider") {
+                                defaultValues[`${service}_${field}`] = value;
                             }
                         });
+                        if (userConfig[service].provider) {
+                            selectedProviders[service] = userConfig[service].provider as string;
+                        }
+                    } else if (response.data) {
+                        const properties = response.data[service]?.[selectedProviders[service]]?.properties as Record<string, SchemaProperty>;
+                        if (properties) {
+                            Object.entries(properties).forEach(([field, schema]) => {
+                                if (field !== "provider" && schema.default) {
+                                    defaultValues[`${service}_${field}`] = schema.default;
+                                }
+                            });
+                        }
                     }
-                }
+                };
+
+                setServicePropertyValues("llm");
+                setServicePropertyValues("tts");
+                setServicePropertyValues("stt");
+                setServicePropertyValues("embeddings");
+
+                // IMPORTANT: Reset form values BEFORE changing providers
+                // Otherwise, Radix Select sees old values that don't match new provider's enum
+                // and calls onValueChange('') to clear "invalid" values
+                reset(defaultValues);
+                setServiceProviders(selectedProviders);
+            } else if (response.error) {
+                setApiError("Failed to load configuration schemas. Please check if the backend is running.");
+                console.error("Schema fetch error:", response.error);
             }
-
-            setServicePropertyValues("llm");
-            setServicePropertyValues("tts");
-            setServicePropertyValues("stt");
-            setServicePropertyValues("embeddings");
-
-            // IMPORTANT: Reset form values BEFORE changing providers
-            // Otherwise, Radix Select sees old values that don't match new provider's enum
-            // and calls onValueChange('') to clear "invalid" values
-            reset(defaultValues);
-            setServiceProviders(selectedProviders);
+            setIsLoading(false);
         };
         fetchConfigurations();
     }, [reset, userConfig]);
@@ -656,33 +665,43 @@ export default function ServiceConfiguration() {
                 </p>
             </div>
 
-            <form onSubmit={handleSubmit(onSubmit)}>
-                <Card>
-                    <CardContent className="pt-6">
-                        <Tabs defaultValue="llm" className="w-full">
-                            <TabsList className="grid w-full grid-cols-4 mb-6">
-                                {TAB_CONFIG.map(({ key, label }) => (
-                                    <TabsTrigger key={key} value={key}>
-                                        {label}
-                                    </TabsTrigger>
+            {(contextLoading || isLoading) ? (
+                <div className="flex items-center justify-center p-12">
+                    <p className="text-muted-foreground italic">Loading configuration...</p>
+                </div>
+            ) : contextError ? (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-md">
+                    <p className="text-red-600">Error loading user config: {contextError.message}</p>
+                </div>
+            ) : (
+                <form onSubmit={handleSubmit(onSubmit)}>
+                    <Card>
+                        <CardContent className="pt-6">
+                            <Tabs defaultValue="llm" className="w-full">
+                                <TabsList className="grid w-full grid-cols-4 mb-6">
+                                    {TAB_CONFIG.map(({ key, label }) => (
+                                        <TabsTrigger key={key} value={key}>
+                                            {label}
+                                        </TabsTrigger>
+                                    ))}
+                                </TabsList>
+
+                                {TAB_CONFIG.map(({ key }) => (
+                                    <TabsContent key={key} value={key} className="mt-0">
+                                        {renderServiceFields(key)}
+                                    </TabsContent>
                                 ))}
-                            </TabsList>
+                            </Tabs>
+                        </CardContent>
+                    </Card>
 
-                            {TAB_CONFIG.map(({ key }) => (
-                                <TabsContent key={key} value={key} className="mt-0">
-                                    {renderServiceFields(key)}
-                                </TabsContent>
-                            ))}
-                        </Tabs>
-                    </CardContent>
-                </Card>
+                    {apiError && <p className="text-red-500 mt-4">{apiError}</p>}
 
-                {apiError && <p className="text-red-500 mt-4">{apiError}</p>}
-
-                <Button type="submit" className="w-full mt-6" disabled={isSaving}>
-                    {isSaving ? "Saving..." : "Save Configuration"}
-                </Button>
-            </form>
+                    <Button type="submit" className="w-full mt-6" disabled={isSaving}>
+                        {isSaving ? "Saving..." : "Save Configuration"}
+                    </Button>
+                </form>
+            )}
         </div>
     );
 }

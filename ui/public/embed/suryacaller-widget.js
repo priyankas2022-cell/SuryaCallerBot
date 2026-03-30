@@ -1,6 +1,6 @@
 /**
- * Dograh Voice Widget
- * Embeddable voice call widget for Dograh workflows
+ * SuryaCaller Voice Widget
+ * Embeddable voice call widget for SuryaCaller workflows
  * Version: 1.0.0
  */
 
@@ -13,7 +13,7 @@
     autoStart: false,
     apiBaseUrl: window.location.hostname === 'localhost'
       ? 'http://localhost:8000'
-      : 'https://api.dograh.com'
+      : 'https://api.suryacaller.com'
   };
 
   // Widget state

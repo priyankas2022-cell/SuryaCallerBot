@@ -415,7 +415,7 @@ export default function UsagePage() {
                                         ) : (
                                             <>
                                                 <p className="text-2xl font-bold">
-                                                    {currentUsage.used_dograh_tokens.toLocaleString()} / {currentUsage.quota_dograh_tokens.toLocaleString()}
+                                                    {currentUsage.used_dograh_tokens.toLocaleString()} / {currentUsage.quota_dograh_tokens.toLocaleString()} SuryaCaller Tokens
                                                 </p>
                                                 <p className="text-sm text-muted-foreground">SuryaCaller Tokens</p>
                                             </>

@@ -223,6 +223,11 @@ export function AppSidebar() {
               className="flex items-center gap-2 px-2 text-xl font-bold"
             >
               SuryaCaller
+              {versionInfo?.ui && (
+                <span className="text-[10px] font-normal text-muted-foreground ml-1">
+                  v{versionInfo.ui}
+                </span>
+              )}
             </Link>
           )}
           {/* Toggle button - center it when collapsed */}

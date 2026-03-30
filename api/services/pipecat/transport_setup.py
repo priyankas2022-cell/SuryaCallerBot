@@ -83,6 +83,7 @@ async def create_twilio_transport(
                 else SilenceAudioMixer()
             ),
             serializer=serializer,
+            audio_out_10ms_chunks=2,
         ),
     )
 
@@ -211,6 +212,7 @@ async def create_ari_transport(
                 else SilenceAudioMixer()
             ),
             serializer=serializer,
+            audio_out_10ms_chunks=2,
         ),
     )
 
@@ -274,6 +276,7 @@ async def create_vonage_transport(
                 else SilenceAudioMixer()
             ),
             serializer=serializer,
+            audio_out_10ms_chunks=2,
         ),
     )
 
@@ -362,6 +365,7 @@ async def create_vobiz_transport(
                 else SilenceAudioMixer()
             ),
             serializer=serializer,
+            audio_out_10ms_chunks=2,
         ),
     )
 
