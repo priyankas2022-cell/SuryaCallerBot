@@ -1,9 +1,7 @@
-name: Release Please
+name: Release Please (Manual Only)
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -12,11 +10,14 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: googleapis/release-please-action@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Run Release Please
+        uses: googleapis/release-please-action@v4
         with:
-          # Config files location
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-          # Use PAT to trigger deployment workflow
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
