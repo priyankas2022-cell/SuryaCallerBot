@@ -22,3 +22,6 @@ node_modules/
 # Ignore specific service folders
 services/admin_utils/
 services/gender/names/
+*.log
+*.json
+ngrok.json
