@@ -606,8 +606,8 @@ async def _run_pipeline(
     if is_deepgram_flux:
         user_turn_strategies = UserTurnStrategies(
             start=[
-                VADUserTurnStartStrategy(),
-                ExternalUserTurnStartStrategy(enable_interruptions=True),
+                VADUserTurnStartStrategy(enable_interruptions=False),
+                ExternalUserTurnStartStrategy(enable_interruptions=False),
             ],
             stop=[ExternalUserTurnStopStrategy()],
         )
@@ -615,7 +615,7 @@ async def _run_pipeline(
         # Smart Turn Analyzer: best for longer responses with natural pauses
         smart_turn_params = SmartTurnParams(stop_secs=smart_turn_stop_secs)
         user_turn_strategies = UserTurnStrategies(
-            start=[VADUserTurnStartStrategy(), TranscriptionUserTurnStartStrategy()],
+            start=[VADUserTurnStartStrategy(enable_interruptions=False), TranscriptionUserTurnStartStrategy(enable_interruptions=False)],
             stop=[
                 TurnAnalyzerUserTurnStopStrategy(
                     turn_analyzer=LocalSmartTurnAnalyzerV3(params=smart_turn_params)
@@ -625,7 +625,7 @@ async def _run_pipeline(
     else:
         # Transcription-based (default): best for short 1-2 word responses
         user_turn_strategies = UserTurnStrategies(
-            start=[VADUserTurnStartStrategy(), TranscriptionUserTurnStartStrategy()],
+            start=[VADUserTurnStartStrategy(enable_interruptions=False), TranscriptionUserTurnStartStrategy(enable_interruptions=False)],
             stop=[SpeechTimeoutUserTurnStopStrategy()],
         )
 

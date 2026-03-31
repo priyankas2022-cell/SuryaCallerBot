@@ -13,7 +13,7 @@ if db_url.startswith("postgresql://"):
     db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
 
 async def update_workflow2():
-    with open("d:/dograh-main/dograh-main/wf_dump.json", "r") as f:
+    with open("wf_dump.json", "r") as f:
         wf = json.load(f)
     
     # Update start node prompt (usually id 1)

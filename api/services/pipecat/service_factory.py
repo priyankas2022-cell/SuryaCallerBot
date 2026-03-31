@@ -1,3 +1,4 @@
+import os
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
@@ -281,11 +282,16 @@ def create_llm_service(user_config):
                 params=OpenAILLMService.InputParams(temperature=0.1),
             )
     elif user_config.llm.provider == ServiceProviders.GROQ.value:
+        # Use API key from config or environment as fallback
+        api_key = user_config.llm.api_key or os.getenv("GROQ_API_KEY")
+        if not api_key:
+            logger.warning("GROQ_API_KEY not found in user configuration or environment")
+            
         logger.info(
             f"Creating Groq LLM service with model: {model}"
         )
         return GroqLLMService(
-            api_key=user_config.llm.api_key,
+            api_key=api_key,
             model=model,
             params=GroqLLMService.InputParams(
                 temperature=0.7,  # Natural, conversational responses

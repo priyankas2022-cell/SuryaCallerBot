@@ -633,7 +633,12 @@ class PipecatEngine:
             "- Ask thoughtful follow-up questions to show interest\n"
             "- Allow natural pauses and don't monopolize the conversation\n"
             "- If interrupted, stop speaking immediately and listen\n"
-            "- Match the user's tone, energy, and formality level"
+            "- Match the user's tone, energy, and formality level\n"
+            "\n"
+            "**IMPORTANT - HANDLING NOISE & SILENCE:**\n"
+            "- IF the user's input is just SILENCE or generic background noise, DO NOT respond.\n"
+            "- IF the user's input is a nonsensical fragment or clearly an error in speech recognition, just say 'I missed that, could you please repeat?' or wait for more input.\n"
+            "- DO NOT hallucinate random details or assume the user said something they didn't."
         )
         system_parts.append(human_instructions)
         
