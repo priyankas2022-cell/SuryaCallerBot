@@ -53,7 +53,6 @@ def create_stt_service(
                 api_key=user_config.stt.api_key,
                 model=user_config.stt.model,
                 params=DeepgramFluxSTTService.InputParams(
-                    eot_timeout_ms=3000,
                     eot_threshold=0.7,
                     keyterm=keyterms or [],
                 ),
@@ -294,8 +293,8 @@ def create_llm_service(user_config):
             api_key=api_key,
             model=model,
             params=GroqLLMService.InputParams(
-                temperature=0.7,  # Natural, conversational responses
-                max_tokens=500,   # Prevent overly long responses
+                temperature=0.8,  # Natural, conversational responses
+                max_tokens=600,   # Prevent overly long responses but allow for reasoning
             ),
         )
     elif user_config.llm.provider == ServiceProviders.OPENROUTER.value:

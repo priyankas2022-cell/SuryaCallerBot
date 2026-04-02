@@ -591,7 +591,7 @@ async def _run_pipeline(
     engine.set_audio_config(audio_config)
 
     assistant_params = LLMAssistantAggregatorParams(
-        expect_stripped_words=True,
+        expect_stripped_words=False,
         correct_aggregation_callback=engine.create_aggregation_correction_callback(),
     )
 
@@ -641,7 +641,7 @@ async def _run_pipeline(
         user_turn_strategies=user_turn_strategies,
         user_mute_strategies=user_mute_strategies,
         user_idle_timeout=max_user_idle_timeout,
-        vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+        vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.4)),  # More breathing room
     )
     context_aggregator = LLMContextAggregatorPair(
         context, assistant_params=assistant_params, user_params=user_params

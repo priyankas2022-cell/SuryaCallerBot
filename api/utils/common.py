@@ -98,7 +98,7 @@ async def get_backend_endpoints() -> tuple[str, str]:
     Get the backend endpoint URLs for external access (webhooks, callbacks, WebSocket connections).
 
     Priority:
-        1. Live Tunnel URLs (ngrok or cloudflared) - automatically detected if running
+        1. Live Tunnel URL (cloudflared) - automatically detected if running
         2. BACKEND_API_ENDPOINT environment variable (fallback if no tunnel detected)
 
     Protocol Handling:
@@ -113,7 +113,7 @@ async def get_backend_endpoints() -> tuple[str, str]:
         ValueError: If no endpoint URL can be determined or URL is invalid
     """
 
-    # First priority: Try to detect an active tunnel (ngrok or cloudflared)
+    # First priority: Try to detect an active tunnel (cloudflared)
     try:
         tunnel_urls = await TunnelURLProvider.get_tunnel_urls()
         if tunnel_urls:
@@ -152,6 +152,6 @@ async def get_backend_endpoints() -> tuple[str, str]:
     # If we get here, no tunnel and no env var
     logger.error("No backend endpoint available (no tunnel detected and no BACKEND_API_ENDPOINT set)")
     raise ValueError(
-        "No backend URL available. Please start ngrok (ngrok http 8000) "
-        "or set BACKEND_API_ENDPOINT environment variable."
+        "No backend URL available. Please ensure the cloudflared service is running "
+        "or set the BACKEND_API_ENDPOINT environment variable."
     )

@@ -72,7 +72,7 @@ class TwilioProvider(TelephonyProvider):
         if from_number is None:
             from_number = random.choice(self.from_numbers)
         logger.info(f"Selected phone number {from_number} for outbound call")
-        logger.info(f"Webhook url received - {webhook_url}")
+        logger.info(f"--- TWILIO WEBHOOK URL: {webhook_url} ---")
 
         # Prepare call data
         data = {"To": to_number, "From": from_number, "Url": webhook_url}
@@ -173,7 +173,7 @@ class TwilioProvider(TelephonyProvider):
     </Connect>
     <Pause length="40"/>
 </Response>"""
-        logger.info(f"Twiml content generated - {twiml_content}")
+        logger.info(f"--- GENERATED TWIML: {twiml_content} ---")
         return twiml_content
 
     async def get_call_cost(self, call_id: str) -> Dict[str, Any]:

@@ -75,6 +75,9 @@ services:
       - app-network
 
   api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
     image: ${REGISTRY:-dograhai}/dograh-api:latest
     volumes:
       - shared-tmp:/tmp
@@ -85,7 +88,7 @@ services:
 
       # Replace this environment variable if you are using a custom
       # domain to host the stack
-      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-https://latesha-lineable-sharyn.ngrok-free.dev}"
+      BACKEND_API_ENDPOINT: "https://charging-kind-revenues-tab.trycloudflare.com"
 
       # Database configuration (using containerized postgres)
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
@@ -187,7 +190,7 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared-tunnel
-    command: tunnel --no-autoupdate --url http://api:8000 --metrics 0.0.0.0:2000
+    command: tunnel --no-autoupdate --protocol http2 --url http://api:8000 --metrics 0.0.0.0:2000
     ports:
       - "2000:2000" # Expose metrics endpoint
     networks:
