@@ -1,0 +1,27 @@
+# Logs
+*.log
+
+# Runtime / debug JSON
+runs_*.json
+recent_*.json
+webrtc_*.json
+wf_dump.json
+defaults_response.json
+
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Node / Frontend
+node_modules/
+.next/
+
+# Ignore specific service folders
+services/admin_utils/
+services/gender/names/
+*.log
+*.json
+ngrok.json

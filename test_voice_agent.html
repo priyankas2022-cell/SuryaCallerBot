@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SuryaCaller - Professional Voice Agent Test</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 800px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+        .status-card {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin-bottom: 25px;
+            border-radius: 8px;
+        }
+        .status-item {
+            margin-bottom: 15px;
+        }
+        .status-item:last-child {
+            margin-bottom: 0;
+        }
+        .label {
+            font-weight: bold;
+            color: #333;
+            display: block;
+            margin-bottom: 5px;
+        }
+        .value {
+            color: #555;
+            font-size: 1.1em;
+        }
+        .success { color: #28a745; }
+        .info { color: #17a2b8; }
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 1.1em;
+            cursor: pointer;
+            margin: 10px 5px;
+            transition: transform 0.2s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+        .btn-secondary {
+            background: #6c757d;
+        }
+        .conversation-log {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            display: none;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 12px;
+            border-radius: 8px;
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .bot-message {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+        }
+        .user-message {
+            background: #e8f5e9;
+            border-right: 4px solid #4caf50;
+            text-align: right;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .instructions {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+        }
+        .instructions ol {
+            margin-left: 20px;
+            margin-top: 10px;
+        }
+        .instructions li {
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎙️ SuryaCaller Voice Agent</h1>
+        <p class="subtitle">Professional AI-Powered Customer Service Agent</p>
+
+        <div class="status-card">
+            <div class="status-item">
+                <span class="label">Agent Status:</span>
+                <span class="value success">✓ Active & Ready</span>
+            </div>
+            <div class="status-item">
+                <span class="label">Workflow ID:</span>
+                <span class="value info">9</span>
+            </div>
+            <div class="status-item">
+                <span class="label">LLM (Intelligence):</span>
+                <span class="value">Groq - llama-3.1-8b-instant</span>
+            </div>
+            <div class="status-item">
+                <span class="label">TTS (Voice):</span>
+                <span class="value">Sarvam - bulbul:v2 (anushka)</span>
+            </div>
+            <div class="status-item">
+                <span class="label">STT (Listening):</span>
+                <span class="value">Sarvam - vittha</span>
+            </div>
+        </div>
+
+        <div class="instructions">
+            <strong>🚀 How to Test Your Voice Agent:</strong>
+            <ol>
+                <li><strong>Option A - Full WebRTC Test:</strong> Visit the workflow page and click "Test Workflow"</li>
+                <li><strong>Option B - Direct API Call:</strong> Use the PowerShell script provided to make phone calls</li>
+                <li><strong>Option C - Browser Console Test:</strong> Open browser console (F12) and test the API directly</li>
+            </ol>
+        </div>
+
+        <div style="text-align: center;">
+            <button class="btn" onclick="window.open('http://localhost:3000/workflow/9', '_blank')">
+                🎯 Open Workflow Editor
+            </button>
+            <button class="btn btn-secondary" onclick="window.open('http://localhost:3000/workflow', '_blank')">
+                📋 View All Workflows
+            </button>
+        </div>
+
+        <div class="conversation-log" id="conversationLog">
+            <!-- Conversation will appear here -->
+        </div>
+    </div>
+
+    <script>
+        // Display system status
+        console.log('%c✅ SURYACALLER VOICE AGENT READY!', 'color: green; font-size: 16px; font-weight: bold;');
+        console.log('%cWorkflow ID:', 'color: blue; font-weight: bold;', 9);
+        console.log('%cConfiguration:', 'color: blue; font-weight: bold;', {
+            LLM: 'Groq - llama-3.1-8b-instant',
+            TTS: 'Sarvam - bulbul:v2 (anushka)',
+            STT: 'Sarvam - vittha'
+        });
+
+        // Check if we can access the backend
+        fetch('http://localhost:8000/api/v1/health')
+            .then(response => response.json())
+            .then(data => {
+                console.log('%cBackend Status:', 'color: green; font-weight: bold;', data);
+            })
+            .catch(error => {
+                console.error('%cBackend Error:', 'color: red; font-weight: bold;', error);
+            });
+
+        function addMessage(text, type) {
+            const log = document.getElementById('conversationLog');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}-message`;
+            messageDiv.textContent = text;
+            log.appendChild(messageDiv);
+            log.scrollTop = log.scrollHeight;
+        }
+    </script>
+</body>
+</html>

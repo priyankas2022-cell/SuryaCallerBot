@@ -1,0 +1,32 @@
+__pycache__
+.DS_Store
+.env
+.env.prod
+.env.test
+
+# logs and run directory on production
+/logs/
+/run/
+infrastructure/
+nginx/
+prd/
+.vercel
+
+venv/
+.venv/
+.playwright-mcp
+
+# Logs and temp files
+logs.txt
+api/logs.txt
+tunnel_logs.txt
+tunnel.txt
+*.log
+*.sql
+*.json
+!release-please-config.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!components.json
+!openapi-ts.config.ts
