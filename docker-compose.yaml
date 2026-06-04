@@ -91,7 +91,7 @@ services:
 
       # Replace this environment variable if you are using a custom
       # domain to host the stack
-      BACKEND_API_ENDPOINT: "https://rankings-clarke-fortune-lucas.trycloudflare.com"
+      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT}"
 
       # Database configuration (using containerized postgres)
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
@@ -176,7 +176,68 @@ services:
 
       # Replace this environment variable if you are using a custom
       # domain to host the stack
-      BACKEND_API_ENDPOINT: "https://rankings-clarke-fortune-lucas.trycloudflare.com"
+      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT}"
+
+      # Database configuration (using containerized postgres)
+      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
+
+      # Redis configuration (using containerized redis)
+      REDIS_URL: "redis://:redissecret@redis:6379"
+
+      # Storage configuration - using local MinIO
+      ENABLE_AWS_S3: "false"
+
+      # MinIO
+      MINIO_ENDPOINT: "minio:9000"
+      MINIO_ACCESS_KEY: "minioadmin"
+      MINIO_SECRET_KEY: "minioadmin"
+      MINIO_BUCKET: "voice-audio"
+      MINIO_SECURE: "false"
+
+      # Langfuse
+      ENABLE_TRACING: "false"
+
+      # Sentry
+      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
+      SENTRY_DSN: "${SENTRY_DSN}"
+
+      TURN_HOST: "${TURN_HOST:-125.20.254.166}"
+      TURN_SECRET: "${TURN_SECRET}"
+
+      OSS_JWT_SECRET: "${OSS_JWT_SECRET}"
+
+      # Twilio Configuration
+      TWILIO_ACCOUNT_SID: "${TWILIO_ACCOUNT_SID}"
+      TWILIO_AUTH_TOKEN: "${TWILIO_AUTH_TOKEN}"
+      TWILIO_PHONE_NUMBER: "${TWILIO_PHONE_NUMBER}"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  campaign-orchestrator:
+    container_name: campaign-orchestrator
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    image: ${REGISTRY:-dograhai}/dograh-api:latest
+    command: python api/services/campaign/campaign_orchestrator.py
+    volumes:
+      - shared-tmp:/tmp
+    environment:
+      # Core application config
+      ENVIRONMENT: "local"
+      LOG_LEVEL: "INFO"
+
+      # Replace this environment variable if you are using a custom
+      # domain to host the stack
+      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT}"
 
       # Database configuration (using containerized postgres)
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"

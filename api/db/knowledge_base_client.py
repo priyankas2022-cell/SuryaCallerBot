@@ -369,7 +369,7 @@ class KnowledgeBaseClient(BaseDBClient):
             param_index = 4  # Next available parameter index
 
             # Add document_ids filter if provided
-            if document_ids:
+            if document_ids and len(document_ids) > 0:
                 placeholders = ", ".join(
                     f"${param_index + i}" for i in range(len(document_ids))
                 )
@@ -378,7 +378,7 @@ class KnowledgeBaseClient(BaseDBClient):
                 param_index += len(document_ids)
 
             # Add document_uuids filter if provided
-            if document_uuids:
+            if document_uuids and len(document_uuids) > 0:
                 placeholders = ", ".join(
                     f"${param_index + i}" for i in range(len(document_uuids))
                 )

@@ -222,7 +222,7 @@ export function AppSidebar() {
               href="/"
               className="flex items-center gap-2 px-2 text-xl font-bold"
             >
-              SuryaCaller
+              Smart AI Caller
               {versionInfo?.ui && (
                 <span className="text-[10px] font-normal text-muted-foreground ml-1">
                   v{versionInfo.ui}

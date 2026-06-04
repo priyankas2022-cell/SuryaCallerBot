@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Check, Clock, Pause, Pencil, Play, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, Check, Clock, Pause, Pencil, Play, RefreshCw, Trash2, X } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -16,7 +16,18 @@ import type { CampaignResponse } from '@/client/types.gen';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { CampaignRuns } from '@/components/workflow-runs';
 import { useAuth } from '@/lib/auth';
 
@@ -40,6 +51,8 @@ export default function CampaignDetailPage() {
 
     // Action state
     const [isExecutingAction, setIsExecutingAction] = useState(false);
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [confirmName, setConfirmName] = useState('');
 
     // Fetch campaign details
     const fetchCampaign = useCallback(async () => {
@@ -215,6 +228,41 @@ export default function CampaignDetailPage() {
         return new Date(dateString).toLocaleDateString();
     };
 
+    // Handle delete campaign
+    const handleDelete = async () => {
+        if (!user || !campaign) return;
+        if (confirmName !== campaign.name) {
+            toast.error('Campaign name does not match');
+            return;
+        }
+
+        setIsExecutingAction(true);
+        try {
+            const accessToken = await getAccessToken();
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/v1/campaign/${campaignId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                }
+            });
+
+            if (response.ok) {
+                toast.success('Campaign deleted successfully');
+                router.push('/campaigns');
+            } else {
+                const errorData = await response.json();
+                toast.error(errorData.detail || 'Failed to delete campaign');
+            }
+        } catch (error) {
+            console.error('Failed to delete campaign:', error);
+            toast.error('An error occurred while deleting the campaign');
+        } finally {
+            setIsExecutingAction(false);
+            setIsDeleteDialogOpen(false);
+            setConfirmName('');
+        }
+    };
+
     const formatDateTime = (dateString: string) => {
         return new Date(dateString).toLocaleString();
     };
@@ -250,10 +298,21 @@ export default function CampaignDetailPage() {
             </Button>
         ) : null;
 
+        const deleteButton = (
+            <Button 
+                variant="destructive" 
+                onClick={() => setIsDeleteDialogOpen(true)}
+            >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Campaign
+            </Button>
+        );
+
         switch (campaign.state) {
             case 'created':
                 return (
                     <div className="flex items-center gap-2">
+                        {deleteButton}
                         {editButton}
                         <Button onClick={handleStart} disabled={isExecutingAction}>
                             <Play className="h-4 w-4 mr-2" />
@@ -264,6 +323,7 @@ export default function CampaignDetailPage() {
             case 'running':
                 return (
                     <div className="flex items-center gap-2">
+                        {deleteButton}
                         {editButton}
                         <Button onClick={handlePause} disabled={isExecutingAction}>
                             <Pause className="h-4 w-4 mr-2" />
@@ -274,6 +334,7 @@ export default function CampaignDetailPage() {
             case 'paused':
                 return (
                     <div className="flex items-center gap-2">
+                        {deleteButton}
                         {editButton}
                         <Button onClick={handleResume} disabled={isExecutingAction}>
                             <RefreshCw className="h-4 w-4 mr-2" />
@@ -282,7 +343,11 @@ export default function CampaignDetailPage() {
                     </div>
                 );
             default:
-                return null;
+                return (
+                    <div className="flex items-center gap-2">
+                        {deleteButton}
+                    </div>
+                );
         }
     };
 
@@ -307,7 +372,7 @@ export default function CampaignDetailPage() {
 
     return (
         <div className="container mx-auto p-6 space-y-6">
-            <div>
+            <div className="mb-4">
                 <Button
                     variant="ghost"
                     onClick={handleBack}
@@ -319,18 +384,50 @@ export default function CampaignDetailPage() {
                 <div className="flex justify-between items-start">
                     <div>
                         <h1 className="text-3xl font-bold mb-2">{campaign.name}</h1>
-                            <div className="flex items-center gap-4">
-                                <Badge variant={getStateBadgeVariant(campaign.state)}>
-                                    {campaign.state}
-                                </Badge>
-                                <span className="text-muted-foreground">
-                                    Created {formatDate(campaign.created_at)}
-                                </span>
-                            </div>
+                        <div className="flex items-center gap-4">
+                            <Badge variant={getStateBadgeVariant(campaign.state)}>
+                                {campaign.state}
+                            </Badge>
+                            <span className="text-muted-foreground">
+                                Created {formatDate(campaign.created_at)}
+                            </span>
                         </div>
-                        {renderActionButton()}
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <Button 
+                            variant="destructive" 
+                            onClick={() => setIsDeleteDialogOpen(true)}
+                        >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete Campaign
+                        </Button>
+                        {canEdit && (
+                            <Button variant="outline" onClick={() => router.push(`/campaigns/${campaign.id}/edit`)}>
+                                <Pencil className="h-4 w-4 mr-2" />
+                                Edit Campaign
+                            </Button>
+                        )}
+                        {campaign.state === 'created' && (
+                            <Button onClick={handleStart} disabled={isExecutingAction}>
+                                <Play className="h-4 w-4 mr-2" />
+                                Start Campaign
+                            </Button>
+                        )}
+                        {campaign.state === 'running' && (
+                            <Button onClick={handlePause} disabled={isExecutingAction}>
+                                <Pause className="h-4 w-4 mr-2" />
+                                Pause Campaign
+                            </Button>
+                        )}
+                        {campaign.state === 'paused' && (
+                            <Button onClick={handleResume} disabled={isExecutingAction}>
+                                <RefreshCw className="h-4 w-4 mr-2" />
+                                Resume Campaign
+                            </Button>
+                        )}
                     </div>
                 </div>
+            </div>
 
                 {/* Campaign Details */}
                 <Card className="mb-6">
@@ -522,6 +619,47 @@ export default function CampaignDetailPage() {
                     workflowId={campaign.workflow_id}
                     searchParams={searchParams}
                 />
+
+                <AlertDialog open={isDeleteDialogOpen} onOpenChange={(open) => {
+                    setIsDeleteDialogOpen(open);
+                    if (!open) setConfirmName('');
+                }}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                            <AlertDialogDescription className="space-y-4">
+                                <p>
+                                    This action cannot be undone. This will permanently delete the campaign
+                                    <strong> {campaign?.name}</strong> and all its associated data.
+                                </p>
+                                <div className="space-y-2">
+                                    <p className="text-sm font-medium text-foreground">
+                                        Please type <strong>{campaign?.name}</strong> to confirm.
+                                    </p>
+                                    <Input
+                                        value={confirmName}
+                                        onChange={(e) => setConfirmName(e.target.value)}
+                                        placeholder="Type campaign name"
+                                        className="border-destructive/50 focus-visible:ring-destructive"
+                                    />
+                                </div>
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel disabled={isExecutingAction}>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    handleDelete();
+                                }}
+                                disabled={isExecutingAction || confirmName !== campaign?.name}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                                {isExecutingAction ? 'Deleting...' : 'Delete Campaign'}
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
         </div>
     );
 }

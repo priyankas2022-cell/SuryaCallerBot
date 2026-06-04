@@ -21,7 +21,7 @@ RUN pip install --user --no-cache-dir \
     rm -rf /root/.cache/pip
 
 # Install dependencies to user directory for easy copying
-RUN pip install --user --no-cache-dir -r requirements.txt && \
+RUN pip install --user --no-cache-dir -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu && \
     rm -rf /root/.cache/pip
 
 # Ensure vision/document-processing dependencies are present

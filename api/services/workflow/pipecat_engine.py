@@ -343,9 +343,8 @@ class PipecatEngine:
                     )
 
                 if not self._embeddings_api_key:
-                    raise ValueError(
-                        "Embeddings API key not configured. Please set your API key in "
-                        "Model Configurations > Embedding."
+                    logger.warning(
+                        "Embeddings API key not configured. Falling back to local embeddings if configured."
                     )
 
                 result = await retrieve_from_knowledge_base(
@@ -433,9 +432,8 @@ class PipecatEngine:
         if node.tool_uuids and self._custom_tool_manager:
             await self._custom_tool_manager.register_handlers(node.tool_uuids)
 
-        # Register knowledge base retrieval handler if node has documents
-        if node.document_uuids:
-            await self._register_knowledge_base_function(node.document_uuids)
+        # Register knowledge base retrieval handler (always available)
+        await self._register_knowledge_base_function(node.document_uuids or [])
 
         # Set up system message and functions
         (
@@ -593,16 +591,15 @@ class PipecatEngine:
         # Add built-in function schemas (calculator and timezone tools)
         functions.extend(self.builtin_function_schemas)
 
-        # Add knowledge base retrieval tool if node has documents
-        if node.document_uuids:
-            kb_tool_def = get_knowledge_base_tool(node.document_uuids)
-            kb_schema = get_function_schema(
-                kb_tool_def["function"]["name"],
-                kb_tool_def["function"]["description"],
-                properties=kb_tool_def["function"]["parameters"].get("properties", {}),
-                required=kb_tool_def["function"]["parameters"].get("required", []),
-            )
-            functions.append(kb_schema)
+        # Add knowledge base retrieval tool (always available)
+        kb_tool_def = get_knowledge_base_tool(node.document_uuids or [])
+        kb_schema = get_function_schema(
+            kb_tool_def["function"]["name"],
+            kb_tool_def["function"]["description"],
+            properties=kb_tool_def["function"]["parameters"].get("properties", {}),
+            required=kb_tool_def["function"]["parameters"].get("required", []),
+        )
+        functions.append(kb_schema)
 
         # Add custom tools from node.tool_uuids
         if node.tool_uuids and self._custom_tool_manager:
@@ -620,26 +617,55 @@ class PipecatEngine:
 
         formatted_node_prompt = self._format_prompt(node.prompt)
 
-        # Build enhanced system prompt with human-like personality and KB instructions
+        # Build enhanced system prompt
         system_parts = []
-        
-        # Add human-like personality and behavior instructions FIRST
+
+        # 1. KNOWLEDGE BASE USAGE — placed FIRST for maximum visibility
+        kb_instruction = (
+            "\n# KNOWLEDGE BASE USAGE — YOU MUST USE THIS FOR EVERY FACTUAL QUERY\n"
+            "You have access to the company's RAG knowledge base via the 'retrieve_from_knowledge_base' tool.\n"
+            "\n"
+            "## WHEN TO CALL THE TOOL:\n"
+            "- When the user asks ANY question about the company, its policies, services, products, pricing, availability, or facts.\n"
+            "- When the user asks about specific documents, procedures, terms, or conditions.\n"
+            "- When the user asks 'What is...', 'Tell me about...', 'How do I...', 'Do you have...', 'Can you...' related to the business.\n"
+            "- If you are unsure whether to use your general knowledge or the knowledge base, ALWAYS call the tool.\n"
+            "\n"
+            "## HOW TO USE THE TOOL:\n"
+            "- Before answering, call 'retrieve_from_knowledge_base' with the user's question as the 'query' parameter.\n"
+            "- Natural phrasing before calling: 'Let me look that up for you...' or 'One moment, I'll check our records...'\n"
+            "- After receiving the result, use the retrieved data naturally to answer. Do not mention that you got it from a document or tool.\n"
+            "\n"
+            "## CRITICAL RULES:\n"
+            "- NEVER guess or answer from your general knowledge when the user asks about the company.\n"
+            "- If the tool returns no results, respond with: 'I'm sorry, I couldn't find that information in our records.'\n"
+            "- NEVER make up information. Hallucination is strictly forbidden."
+        )
+        system_parts.append(kb_instruction)
+
+        # 2. CURRENT CONVERSATION SCRIPT & TASK
+        system_parts.append("\n# CURRENT CONVERSATION SCRIPT & TASK")
+        if global_prompt:
+            system_parts.append(f"## GLOBAL GUIDELINES:\n{global_prompt}")
+        if formatted_node_prompt:
+            system_parts.append(f"## CURRENT SCRIPT / TASK:\n{formatted_node_prompt}")
+
+        # 3. CORE CONVERSATIONAL FRAMEWORK
         human_instructions = (
-            "# CORE CONVERSATIONAL FRAMEWORK\n"
+            "\n# CORE CONVERSATIONAL FRAMEWORK\n"
             "**YOU ARE A HIGHLY INTELLIGENT, RESPONSIVE, AND HUMAN-LIKE AI ASSISTANT:**\n"
             "\n"
             "## 1. INTENT & RELEVANCE ENFORCEMENT\n"
             "- **EXTRACT INTENT:** Before every word of response, identify EXACTLY what the user is asking. Align your answer strictly with their intent.\n"
             "- **DIRECT ANSWERS:** Never ignore or bypass a direct question. Provide a precise, accurate answer FIRST before steering back to the conversation script.\n"
             "- **ANTI-RANDOMNESS:** Do not generate creative, off-topic, or vague responses. If unsure of user intent, ask a brief, helpful clarification question.\n"
-            "- **NO HALLUCINATIONS:** If you don't know an answer (and it's not in the script or knowledge base), admit it and offer to find out or stay on topic.\n"
             "\n"
             "## 2. CONTEXT & CONSISTENCY\n"
             "- **HISTORY AWARENESS:** Use the conversation history to maintain perfect continuity. Never repeat yourself or contradict earlier statements.\n"
             "- **STATE TRACKING:** Be aware of where you are in the conversation flow and respect the user's progress.\n"
             "\n"
             "## 3. RESPONSE STRUCTURE (A-A-G)\n"
-            "Follow this 3-part logic for every response to ensure effectiveness:\n"
+            "Follow this 3-part logic for every response:\n"
             "1. **ACKNOWLEDGE:** Briefly confirm you understood their query (e.g., 'Got it', 'I see what you mean').\n"
             "2. **ANSWER:** Provide the exact, direct information requested.\n"
             "3. **GUIDE (Optional):** Naturally transition back to the main goal or ask a relevant follow-up.\n"
@@ -651,48 +677,8 @@ class PipecatEngine:
             "- **NO NOISE RESPONSE:** If input is just background noise or silence, DO NOT respond."
         )
         system_parts.append(human_instructions)
-        
-        # Add multilingual support instructions with HINDI PRIORITY
-        multilingual_instructions = (
-            "\n# MULTILINGUAL SUPPORT - INDIAN LANGUAGES\n"
-            "🗣️ LANGUAGE DETECTION & RESPONSE:\n"
-            "- ALWAYS listen carefully to detect the user's language from their FIRST word.\n"
-            "- PRIMARY LANGUAGE: Hindi (hi-IN) - Default to Hindi unless user clearly uses another language.\n"
-            "- AUTO-DETECT: Automatically identify which Indian language the user is speaking.\n"
-            "- MIRROR: Respond in the EXACT same language the user uses.\n"
-            "- LANGUAGE MIXING: Handle Hinglish, Tanglish (Tamil+English), etc., naturally.\n"
-            "\n"
-            "🇮🇳 SUPPORTED 22 INDIAN LANGUAGES:\n"
-            "Hindi (hi-IN) ⭐ PRIMARY/DEFAULT, Bengali, Tamil, Telugu, Marathi, Gujarati, Kannada, Malayalam, Punjabi, Odia, Assamese, Indian English, plus 10+ others.\n"
-            "\n"
-            "💡 LANGUAGE BEHAVIOR:\n"
-            "- Start in HINDI by default if language is unclear.\n"
-            "- Switch instantly when you detect a different language.\n"
-            "- Write numbers as words: 'twenty-five' not '25'.\n"
-            "- Use native greetings like 'Namaste' (Hindi), 'Vanakkam' (Tamil)."
-        )
-        system_parts.append(multilingual_instructions)
-        
-        # Add the conversation goal/script
-        system_parts.append("\n# CURRENT CONVERSATION SCRIPT & TASK")
-        if global_prompt:
-            system_parts.append(f"## GLOBAL GUIDELINES:\n{global_prompt}")
-        if formatted_node_prompt:
-            system_parts.append(f"## CURRENT SCRIPT / TASK:\n{formatted_node_prompt}")
-        
-        # Add knowledge base usage instructions if documents are available
-        if node.document_uuids:
-            kb_instruction = (
-                "\n# KNOWLEDGE BASE USAGE\n"
-                "You have access to company information. ALWAYS use 'retrieve_from_knowledge_base' tool when:\n"
-                "- User asks about policies, products, or services.\n"
-                "- You need specific facts from documents.\n"
-                "Natural phrasing: 'Let me look that up for you...' or 'One moment, I'll check our records...'\n"
-                "After retrieval: Use the information naturally, don't say 'The document says...'"
-            )
-            system_parts.append(kb_instruction)
-        
-        # Add tool usage guidelines (general)
+
+        # 4. USING TOOLS NATURALLY
         tool_guidelines = (
             "\n# USING TOOLS NATURALLY\n"
             "- Calculator: 'Let me calculate that...'\n"
@@ -701,12 +687,33 @@ class PipecatEngine:
             "- Sound like you're personally helping, not processing requests."
         )
         system_parts.append(tool_guidelines)
-        
-        # Add response optimization for natural speech
+
+        # 5. MULTILINGUAL SUPPORT
+        multilingual_instructions = (
+            "\n# MULTILINGUAL SUPPORT - INDIAN LANGUAGES\n"
+            "## LANGUAGE DETECTION & RESPONSE:\n"
+            "- ALWAYS listen carefully to detect the user's language from their FIRST word.\n"
+            "- PRIMARY LANGUAGE: Hindi (hi-IN) - Default to Hindi unless user clearly uses another language.\n"
+            "- AUTO-DETECT: Automatically identify which Indian language the user is speaking.\n"
+            "- MIRROR: Respond in the EXACT same language the user uses.\n"
+            "- LANGUAGE MIXING: Handle Hinglish, Tanglish (Tamil+English), etc., naturally.\n"
+            "\n"
+            "## SUPPORTED 22 INDIAN LANGUAGES:\n"
+            "Hindi (hi-IN) PRIMARY/DEFAULT, Bengali, Tamil, Telugu, Marathi, Gujarati, Kannada, Malayalam, Punjabi, Odia, Assamese, Indian English, plus 10+ others.\n"
+            "\n"
+            "## LANGUAGE BEHAVIOR:\n"
+            "- Start in HINDI by default if language is unclear.\n"
+            "- Switch instantly when you detect a different language.\n"
+            "- Write numbers as words: 'twenty-five' not '25'.\n"
+            "- Use native greetings like 'Namaste' (Hindi), 'Vanakkam' (Tamil)."
+        )
+        system_parts.append(multilingual_instructions)
+
+        # 6. SPEECH OUTPUT GUIDELINES
         speech_optimization = (
             "\n# SPEECH OUTPUT GUIDELINES\n"
             "- Responses will be spoken via text-to-speech.\n"
-            "- Avoid mapping emojis, URLs, bullet points, or complex formatting.\n"
+            "- Avoid emojis, URLs, bullet points, or complex formatting.\n"
             "- Use natural punctuation: commas, periods, question marks for rhythm.\n"
             "- Be friendly, professional, and conversational."
         )

@@ -207,8 +207,9 @@ async def initiate_call(
         f"?workflow_id={request.workflow_id}"
         f"&user_id={user.id}"
         f"&workflow_run_id={workflow_run_id}"
-        f"&organization_id={user.selected_organization_id}"
     )
+    if user.selected_organization_id is not None:
+        webhook_url += f"&organization_id={user.selected_organization_id}"
 
     keywords = {"workflow_id": request.workflow_id, "user_id": user.id}
 
@@ -489,14 +490,14 @@ async def _validate_organization_provider_config(
 
 @router.post("/twiml", include_in_schema=False)
 async def handle_twiml_webhook(
-    workflow_id: int, user_id: int, workflow_run_id: int, organization_id: int
+    workflow_id: int, user_id: int, workflow_run_id: int, organization_id: Optional[int] = None
 ):
     """
     Handle initial webhook from telephony provider.
     Returns provider-specific response (e.g., TwiML for Twilio).
     """
 
-    provider = await get_telephony_provider(organization_id)
+    provider = await get_telephony_provider(organization_id or user_id)
 
     response_content = await provider.get_webhook_response(
         workflow_id, user_id, workflow_run_id

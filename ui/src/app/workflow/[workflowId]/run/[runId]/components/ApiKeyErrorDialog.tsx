@@ -40,7 +40,7 @@ export const ApiKeyErrorDialog = ({
                                 <p className="font-medium text-foreground">{error}</p>
                                 {isQuotaError && (
                                     <p className="text-muted-foreground">
-                                        Your SuryaCaller service credits are too low to start a call.
+                                        Your Smart AI Caller service credits are too low to start a call.
                                     </p>
                                 )}
                             </div>

@@ -1,12 +1,15 @@
 "use client";
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { Activity, Phone, Plus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/lib/auth';
 
 export default function OverviewPage() {
+    const router = useRouter();
     const { user, provider } = useAuth();
     const isOSSMode = provider !== 'stack';
 
@@ -18,23 +21,26 @@ export default function OverviewPage() {
                     <CardHeader>
                         <CardTitle className="text-3xl">
                             {isOSSMode ? (
-                                "Welcome to SuryaCaller"
+                                "Welcome to Smart AI Caller"
                             ) : (
                                 `Welcome${user?.displayName ? `, ${user.displayName.split(' ')[0]}` : ''}!`
                             )}
                         </CardTitle>
                         <CardDescription className="text-lg mt-2">
-                            SuryaCaller is an AI-powered telephony and voice automation platform developed by Surya International Enterprises Pvt. Ltd., designed to streamline intelligent calling workflows and customer interactions.
+                            Smart AI Caller is an AI-powered telephony and voice automation platform developed and designed to streamline intelligent calling workflows and customer interactions.
                         </CardDescription>
                     </CardHeader>
                     <CardContent />
                 </Card>
 
                 {/* Quick Actions */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                     <Card>
                         <CardHeader>
-                            <CardTitle>Create and Manage your Voice Agents</CardTitle>
+                            <div className="p-2 w-fit rounded-lg bg-primary/10 text-primary mb-2">
+                                <Plus className="h-6 w-6" />
+                            </div>
+                            <CardTitle>Create and Manage Agents</CardTitle>
                             <CardDescription>
                                 Build powerful AI Voice Agents with our visual editor
                             </CardDescription>
@@ -50,6 +56,9 @@ export default function OverviewPage() {
 
                     <Card>
                         <CardHeader>
+                            <div className="p-2 w-fit rounded-lg bg-primary/10 text-primary mb-2">
+                                <Activity className="h-6 w-6" />
+                            </div>
                             <CardTitle>Configure Services</CardTitle>
                             <CardDescription>
                                 Set up your AI services like LLM, TTS, and STT providers
@@ -66,11 +75,11 @@ export default function OverviewPage() {
                 </div>
 
                 {/* Resources Section */}
-                <Card className="mt-8">
+                <Card>
                     <CardHeader>
-                        <CardTitle>Resources</CardTitle>
+                        <CardTitle>Resources & Support</CardTitle>
                         <CardDescription>
-                            Get help and learn more about SuryaCaller
+                            Get help and learn more about Smart AI Caller
                         </CardDescription>
                     </CardHeader>
                     <CardContent>

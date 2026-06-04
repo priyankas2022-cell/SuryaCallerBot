@@ -91,6 +91,9 @@ class CSVSyncService(CampaignSourceSyncService):
             # Pad row to match headers length
             padded_row = row_values + [""] * (len(headers) - len(row_values))
 
+            # Strip all values to ensure phone numbers (and other data) are clean
+            padded_row = [str(v).strip() for v in padded_row]
+
             # Create context variables dict
             context_vars = dict(zip(headers, padded_row))
 

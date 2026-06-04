@@ -553,6 +553,13 @@ class SarvamSTTService(STTService):
                 await self._call_event_handler("on_utterance_end")
 
                 if transcript and transcript.strip():
+                    # Filter out Sarvam ASR hallucination of repeating 'b's or 'bb's
+                    clean_text = "".join(c for c in transcript.lower() if c.isalpha())
+                    if clean_text and all(c == 'b' for c in clean_text):
+                        logger.warning(f"Filtering out Sarvam STT hallucination/noise: {transcript}")
+                        await self.stop_processing_metrics()
+                        return
+
                     # Record tracing for this transcription event
                     await self._handle_transcription(transcript, True, language)
                     await self.push_frame(

@@ -19,9 +19,7 @@ if SENTRY_DSN and (
     )
     print(f"Sentry initialized in environment: {ENVIRONMENT}")
 
-
 from contextlib import asynccontextmanager
-
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse

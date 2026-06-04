@@ -63,7 +63,7 @@ services:
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: voice-audio
       MINIO_SECURE: "false"
-      BACKEND_API_ENDPOINT: https://rankings-clarke-fortune-lucas.trycloudflare.com
+      BACKEND_API_ENDPOINT: ${BACKEND_API_ENDPOINT}
       WAIT_FOR_PROCESSES: "true"
       LOG_TO_FILE: "false"
     ports:

@@ -30,3 +30,4 @@ tunnel.txt
 !tsconfig.json
 !components.json
 !openapi-ts.config.ts
+logs_api.txt

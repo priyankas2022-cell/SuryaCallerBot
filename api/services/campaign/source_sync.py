@@ -26,8 +26,8 @@ class CampaignSourceSyncService(ABC):
 
     @staticmethod
     def normalize_headers(headers: List[str]) -> List[str]:
-        """Normalize headers by stripping whitespace and lowercasing."""
-        return [h.strip().lower() for h in headers]
+        """Normalize headers by stripping whitespace, BOM, and lowercasing."""
+        return [h.lstrip('\ufeff').strip().lower() for h in headers]
 
     @staticmethod
     def validate_source_data(

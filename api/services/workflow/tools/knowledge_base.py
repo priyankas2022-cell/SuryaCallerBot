@@ -52,6 +52,10 @@ async def retrieve_from_knowledge_base(
         - query: The original query
         - total_results: Number of results returned
     """
+    # Normalize empty document_uuids to None for global search scoping
+    if document_uuids is not None and len(document_uuids) == 0:
+        document_uuids = None
+
     # Create span for retrieval operation if tracing is enabled
     if is_tracing_enabled():
         try:
@@ -280,6 +284,7 @@ async def _perform_retrieval(
         }
 
 
+
 def get_knowledge_base_tool(
     document_uuids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
@@ -292,24 +297,23 @@ def get_knowledge_base_tool(
         Tool definition compatible with LLM function calling
     """
     # Build description based on whether specific documents are filtered
+    base_instruction = (
+        "CRITICAL: You MUST call this tool whenever the user asks any question about the company, "
+        "its policies, services, products, pricing, or any factual information. "
+        "Do NOT attempt to answer from your general knowledge — ALWAYS search the knowledge base first."
+    )
     if document_uuids and len(document_uuids) > 0:
         description = (
             "Retrieve relevant information from specific documents in the knowledge base. "
-            "Use this tool when you need to look up facts, policies, procedures, or any information "
-            "that might be stored in the available documents. The search will only look in the "
-            f"documents associated with this conversation step ({len(document_uuids)} document(s) available)."
+            + base_instruction
+            + f" The search will look in the documents associated with this conversation step ({len(document_uuids)} document(s) available)."
         )
     else:
         description = (
             "Retrieve relevant information from the knowledge base. "
-            "CRITICAL: Use this tool whenever you need to look up facts, policies, procedures, "
-            "or any information that might be stored in documents. "
-            "Examples of when to use this tool:\n"
-            "- 'What is your refund policy?'\n"
-            "- 'Tell me about your products'\n"
-            "- 'How do I contact support?'\n"
-            "- Any question about company-specific information\n"
-            "DO NOT try to answer from your general knowledge - ALWAYS search the knowledge base first for factual questions."
+            + base_instruction
+            + " Examples: 'What is your refund policy?', 'Tell me about your products', "
+            "'How do I contact support?', or any company-specific question."
         )
 
     return {

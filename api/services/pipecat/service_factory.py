@@ -125,7 +125,11 @@ def create_stt_service(
         return SarvamSTTService(
             api_key=user_config.stt.api_key,
             model=model,
-            params=SarvamSTTService.InputParams(language=pipecat_language),
+            params=SarvamSTTService.InputParams(
+                language=pipecat_language,
+                vad_signals=True,
+                high_vad_sensitivity=True,
+            ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SPEECHMATICS.value:
@@ -250,6 +254,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             api_key=user_config.tts.api_key,
             model=user_config.tts.model,
             voice_id=voice,
+            sample_rate=audio_config.pipeline_sample_rate,
             params=SarvamTTSService.InputParams(language=pipecat_language),
             text_filters=[xml_function_tag_filter],
         )

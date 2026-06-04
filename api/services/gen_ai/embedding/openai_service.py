@@ -215,12 +215,16 @@ class OpenAIEmbeddingService(BaseEmbeddingService):
         query_embedding = await self.embed_query(query)
 
         # Perform vector similarity search
+        # Note: We do NOT filter by embedding_model here because chunks may have been
+        # indexed with a different model (e.g., if the user configured an API key after
+        # uploading documents). PostgreSQL's vector dimension check provides implicit
+        # compatibility enforcement. Any dimension mismatch is caught by the caller.
         results = await self.db.search_similar_chunks(
             query_embedding=query_embedding,
             organization_id=organization_id,
             limit=limit,
             document_uuids=document_uuids,
-            embedding_model=self.model_id,
+            embedding_model=None,
         )
 
         return results

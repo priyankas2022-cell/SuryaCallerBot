@@ -402,7 +402,7 @@ export default function RunsPage() {
                                                         )}
                                                     </div>
                                                 </TableHead>
-                                                <TableHead className="font-semibold">SuryaCaller Token</TableHead>
+                                                <TableHead className="font-semibold">Smart AI Caller Token</TableHead>
                                                 <TableHead
                                                     className="font-semibold cursor-pointer hover:bg-muted/50 select-none"
                                                     onClick={() => handleSort('created_at')}

@@ -627,3 +627,16 @@ async def get_campaign_source_download_url(
         raise HTTPException(
             status_code=500, detail=f"Failed to generate download URL: {str(e)}"
         )
+
+
+@router.delete("/{campaign_id}")
+async def delete_campaign(
+    campaign_id: int,
+    user: UserModel = Depends(get_user),
+):
+    """Delete a campaign"""
+    success = await db_client.delete_campaign(campaign_id, user.selected_organization_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    
+    return {"message": "Campaign deleted successfully"}

@@ -13,6 +13,7 @@ Benefits:
 """
 
 import os
+import asyncio
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -163,6 +164,49 @@ class LocalEmbeddingService(BaseEmbeddingService):
     def get_embedding_dimension(self) -> int:
         """Get the embedding dimension."""
         return EMBEDDING_DIMENSION
+
+    async def embed_query(self, query: str) -> List[float]:
+        """Embed a single query text using local model.
+
+        Args:
+            query: Query text to embed
+
+        Returns:
+            Embedding vector as list of floats (padded to 1536 dimensions)
+        """
+        embeddings = await self.embed_texts([query])
+        return embeddings[0]
+
+    async def search_similar_chunks(
+        self,
+        query: str,
+        organization_id: int,
+        limit: int = 5,
+        document_uuids: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Search for similar chunks using vector similarity.
+
+        Args:
+            query: Search query text
+            organization_id: Organization ID for scoping
+            limit: Maximum number of results to return
+            document_uuids: Optional list of document UUIDs to filter by
+
+        Returns:
+            List of dictionaries containing chunk data and similarity scores
+        """
+        query_embedding = await self.embed_query(query)
+        # Note: We do NOT filter by embedding_model here because chunks may have been
+        # indexed with a different model. PostgreSQL's vector dimension check provides
+        # implicit compatibility enforcement.
+        results = await self.db.search_similar_chunks(
+            query_embedding=query_embedding,
+            organization_id=organization_id,
+            limit=limit,
+            document_uuids=document_uuids,
+            embedding_model=None,
+        )
+        return results
 
     async def process_document_and_store(
         self,

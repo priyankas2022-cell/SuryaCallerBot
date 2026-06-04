@@ -80,7 +80,9 @@ class UserClient(BaseDBClient):
                 # If configuration contains an unsupported provider,
                 # return a default configuration without failing
                 logger.warning(
-                    f"Failed to validate user configuration for user {user_id}: {e}. "
+                    f"Failed to validate user configuration for user {user_id}. "
+                    f"Stored data: {configuration_obj.configuration}. "
+                    f"Error: {e}. "
                     "Returning default configuration."
                 )
                 return UserConfiguration()

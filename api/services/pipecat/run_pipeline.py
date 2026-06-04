@@ -502,9 +502,22 @@ async def _run_pipeline(
                 ]
 
     # Create services based on user configuration
+    logger.info(f"🔧 STT config: {user_config.stt}")
+    logger.info(f"🔧 TTS config: {user_config.tts}")
+    logger.info(f"🔧 LLM config: {user_config.llm}")
+    if not user_config.stt:
+        raise ValueError("STT service not configured. Please configure STT in Model Configurations > Speech-to-Text.")
+    if not user_config.tts:
+        raise ValueError("TTS service not configured. Please configure TTS in Model Configurations > Text-to-Speech.")
+    if not user_config.llm:
+        raise ValueError("LLM service not configured. Please configure LLM in Model Configurations > LLM.")
+    logger.info(f"🔧 STT: {user_config.stt.provider}/{user_config.stt.model}")
+    logger.info(f"🔧 TTS: {user_config.tts.provider}/{user_config.tts.model}")
+    logger.info(f"🔧 LLM: {user_config.llm.provider}/{user_config.llm.model}")
     stt = create_stt_service(user_config, audio_config, keyterms=keyterms)
     tts = create_tts_service(user_config, audio_config)
     llm = create_llm_service(user_config)
+    logger.info(f"✅ STT: {type(stt).__name__}, TTS: {type(tts).__name__}, LLM: {type(llm).__name__}")
 
     workflow_graph = WorkflowGraph(
         ReactFlowDTO.model_validate(workflow.workflow_definition_with_fallback)

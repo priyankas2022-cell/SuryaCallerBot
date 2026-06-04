@@ -1,19 +1,18 @@
 "use client";
 
-import { Calendar, ChevronLeft, ChevronRight, Globe } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Globe } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useId, useState } from 'react';
 import TimezoneSelect, { type ITimezoneOption } from 'react-timezone-select';
 
-import { getCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGet, getDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGet,getUsageHistoryApiV1OrganizationsUsageRunsGet } from '@/client/sdk.gen';
-import type { CurrentUsageResponse, DailyUsageBreakdownResponse,UsageHistoryResponse, WorkflowRunUsageResponse } from '@/client/types.gen';
+import { getDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGet,getUsageHistoryApiV1OrganizationsUsageRunsGet } from '@/client/sdk.gen';
+import type { DailyUsageBreakdownResponse,UsageHistoryResponse, WorkflowRunUsageResponse } from '@/client/types.gen';
 import { DailyUsageTable } from '@/components/DailyUsageTable';
 import { FilterBuilder } from '@/components/filters/FilterBuilder';
 import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
 import {
     Table,
     TableBody,
@@ -37,9 +36,7 @@ export default function UsagePage() {
     const { userConfig, saveUserConfig, loading: userConfigLoading, organizationPricing } = useUserConfig();
     const auth = useAuth();
 
-    // Current usage state
-    const [currentUsage, setCurrentUsage] = useState<CurrentUsageResponse | null>(null);
-    const [isLoadingCurrent, setIsLoadingCurrent] = useState(true);
+
 
     // Usage history state
     const [usageHistory, setUsageHistory] = useState<UsageHistoryResponse | null>(null);
@@ -68,21 +65,7 @@ export default function UsagePage() {
     const [savingTimezone, setSavingTimezone] = useState(false);
     const timezoneSelectId = useId(); // Stable ID for react-select to prevent hydration mismatch
 
-    // Fetch current usage
-    const fetchCurrentUsage = useCallback(async () => {
-        if (!auth.isAuthenticated) return;
-        try {
-            const response = await getCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGet();
 
-            if (response.data) {
-                setCurrentUsage(response.data);
-            }
-        } catch (error) {
-            console.error('Failed to fetch current usage:', error);
-        } finally {
-            setIsLoadingCurrent(false);
-        }
-    }, [auth.isAuthenticated]);
 
     // Fetch usage history
     const fetchUsageHistory = useCallback(async (page: number, filters?: ActiveFilter[]) => {
@@ -195,10 +178,9 @@ export default function UsagePage() {
     // Initial load - fetch when auth becomes available
     useEffect(() => {
         if (auth.isAuthenticated) {
-            fetchCurrentUsage();
             fetchUsageHistory(currentPage, activeFilters);
         }
-    }, [auth.isAuthenticated, currentPage, activeFilters, fetchUsageHistory, fetchCurrentUsage]);
+    }, [auth.isAuthenticated, currentPage, activeFilters, fetchUsageHistory]);
 
     // Fetch daily usage when organizationPricing becomes available
     useEffect(() => {
@@ -305,7 +287,7 @@ export default function UsagePage() {
                 <div className="flex justify-between items-start">
                     <div>
                         <h1 className="text-3xl font-bold mb-2">Usage Dashboard</h1>
-                        <p className="text-muted-foreground">Monitor your SuryaCaller Token usage and quota</p>
+                        <p className="text-muted-foreground">Monitor your Smart AI Caller Token usage and quota</p>
                     </div>
                         <div className="flex items-center gap-2">
                             <Globe className="h-4 w-4 text-muted-foreground" />
@@ -383,71 +365,7 @@ export default function UsagePage() {
                     </div>
                 </div>
 
-                {/* Current Period Card */}
-                <Card className="mb-6">
-                    <CardHeader>
-                        <CardTitle>Current Billing Period</CardTitle>
-                        <CardDescription>
-                            {currentUsage && `${formatDate(currentUsage.period_start)} - ${formatDate(currentUsage.period_end)}`}
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        {isLoadingCurrent ? (
-                            <div className="animate-pulse space-y-4">
-                                <div className="h-4 bg-muted rounded w-1/4"></div>
-                                <div className="h-8 bg-muted rounded"></div>
-                                <div className="h-4 bg-muted rounded w-1/3"></div>
-                            </div>
-                        ) : currentUsage ? (
-                            <div className="space-y-4">
-                                <div className="flex justify-between items-baseline">
-                                    <div>
-                                        {organizationPricing?.price_per_second_usd ? (
-                                            <>
-                                                <p className="text-2xl font-bold">
-                                                    ${(currentUsage.used_amount_usd || 0).toFixed(2)}
-                                                </p>
-                                                <p className="text-sm text-muted-foreground">Total Cost (USD)</p>
-                                                <p className="text-xs text-muted-foreground mt-1">
-                                                    Rate: ${(organizationPricing.price_per_second_usd * 60).toFixed(4)}/minute
-                                                </p>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <p className="text-2xl font-bold">
-                                                    {currentUsage.used_dograh_tokens.toLocaleString()} / {currentUsage.quota_dograh_tokens.toLocaleString()} SuryaCaller Tokens
-                                                </p>
-                                                <p className="text-sm text-muted-foreground">SuryaCaller Tokens</p>
-                                            </>
-                                        )}
-                                    </div>
-                                    {!organizationPricing?.price_per_second_usd && (
-                                        <div className="text-right">
-                                            <p className="text-lg font-semibold">{currentUsage.percentage_used}%</p>
-                                            <p className="text-sm text-muted-foreground">Used</p>
-                                        </div>
-                                    )}
-                                </div>
 
-                                {!organizationPricing?.price_per_second_usd && (
-                                    <Progress value={currentUsage.percentage_used} className="h-3" />
-                                )}
-
-                                <div className="flex justify-between items-center text-sm text-muted-foreground">
-                                    <div className="flex items-center">
-                                        <Calendar className="h-4 w-4 mr-1" />
-                                        Next refresh: {formatDate(currentUsage.next_refresh_date)}
-                                    </div>
-                                    <div>
-                                        Total Duration: <span className="font-medium text-foreground">{formatDuration(currentUsage.total_duration_seconds)}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            <p className="text-muted-foreground">Unable to load usage data</p>
-                        )}
-                    </CardContent>
-                </Card>
 
                 {/* Daily Usage Table - Only for paid organizations */}
                 {organizationPricing?.price_per_second_usd && (
@@ -503,7 +421,7 @@ export default function UsagePage() {
                                                 <TableHead className="font-semibold">Date</TableHead>
                                                 <TableHead className="font-semibold text-right">Duration</TableHead>
                                                 <TableHead className="font-semibold text-right">
-                                                    {organizationPricing?.price_per_second_usd ? 'Cost (USD)' : 'SuryaCaller Tokens'}
+                                                    {organizationPricing?.price_per_second_usd ? 'Cost (USD)' : 'Smart AI Caller Tokens'}
                                                 </TableHead>
                                             </TableRow>
                                         </TableHeader>
@@ -560,7 +478,7 @@ export default function UsagePage() {
                                     <div className="mt-4 p-3 bg-muted rounded-md">
                                         <p className="text-sm text-muted-foreground">
                                             Total for filtered period: <span className="font-semibold text-foreground">
-                                                {usageHistory.total_dograh_tokens.toLocaleString()} SuryaCaller Tokens
+                                                {usageHistory.total_dograh_tokens.toLocaleString()} Smart AI Caller Tokens
                                             </span>
                                             {' • '}
                                             <span className="font-semibold text-foreground">

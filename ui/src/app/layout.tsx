@@ -4,7 +4,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
 
-import ChatwootWidget from "@/components/ChatwootWidget";
 import AppLayout from "@/components/layout/AppLayout";
 import PostHogIdentify from "@/components/PostHogIdentify";
 import SpinLoader from "@/components/SpinLoader";
@@ -26,8 +25,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SuryaCaller",
+  title: "Smart AI Caller",
   description: "Open Source Voice Assistant Workflow Builder",
+  icons: {
+    icon: "/icon.png?v=2",
+    shortcut: "/icon.png?v=2",
+    apple: "/icon.png?v=2",
+  },
 };
 
 export default function RootLayout({
@@ -70,7 +74,6 @@ export default function RootLayout({
                     {children}
                   </AppLayout>
                   <Toaster />
-                  <ChatwootWidget />
                 </OnboardingProvider>
               </UserConfigProvider>
             </Suspense>

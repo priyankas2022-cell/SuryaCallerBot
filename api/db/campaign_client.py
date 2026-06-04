@@ -510,3 +510,39 @@ class CampaignClient(BaseDBClient):
                 await session.refresh(run)
 
             return claimed_runs
+
+    async def delete_campaign(self, campaign_id: int, organization_id: int) -> bool:
+        """Delete campaign and its associated queued runs"""
+        async with self.async_session() as session:
+            # First verify campaign belongs to organization
+            query = select(CampaignModel).where(
+                CampaignModel.id == campaign_id,
+                CampaignModel.organization_id == organization_id,
+            )
+            result = await session.execute(query)
+            campaign = result.scalar_one_or_none()
+
+            if not campaign:
+                return False
+
+            # Delete associated queued runs
+            # Note: Workflow runs are kept for historical purposes, but we could also delete them if needed.
+            # Usually, it's better to keep the runs but disconnect them or delete them if the user expects a full wipe.
+            # For now, let's just delete the campaign and its queued runs.
+            # Cascading delete should handle this if configured in models, but we'll do it explicitly if not.
+            
+            # Delete queued runs
+            from sqlalchemy import delete
+            await session.execute(
+                delete(QueuedRunModel).where(QueuedRunModel.campaign_id == campaign_id)
+            )
+
+            # Delete campaign
+            await session.delete(campaign)
+            
+            try:
+                await session.commit()
+                return True
+            except Exception as e:
+                await session.rollback()
+                raise e
