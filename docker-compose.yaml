@@ -92,6 +92,7 @@ services:
       # Replace this environment variable if you are using a custom
       # domain to host the stack
       BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT}"
+      ALLOW_PRIVATE_BACKEND_URL: "${ALLOW_PRIVATE_BACKEND_URL:-true}"
 
       # Database configuration (using containerized postgres)
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
@@ -131,6 +132,15 @@ services:
 
       OSS_JWT_SECRET: "${OSS_JWT_SECRET}"
 
+      # AI Provider Configuration
+      GROQ_API_KEY: "${GROQ_API_KEY}"
+      SARVAM_API_KEY: "${SARVAM_API_KEY}"
+
+      # Vobiz Configuration
+      VOBIZ_AUTH_ID: "${VOBIZ_AUTH_ID}"
+      VOBIZ_AUTH_TOKEN: "${VOBIZ_AUTH_TOKEN}"
+      VOBIZ_DID_NUMBER: "${VOBIZ_DID_NUMBER}"
+
       # Twilio Configuration
       TWILIO_ACCOUNT_SID: "${TWILIO_ACCOUNT_SID}"
       TWILIO_AUTH_TOKEN: "${TWILIO_AUTH_TOKEN}"
@@ -151,12 +161,12 @@ services:
       test:
         [
           "CMD-SHELL",
-          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/api/v1/health'').read()"',
+          'python -c "import http.client,sys; c=http.client.HTTPConnection(''127.0.0.1'',8000,timeout=8); c.request(''GET'',''/api/v1/health''); r=c.getresponse(); sys.exit(0 if r.status==200 else 1)"',
         ]
       interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+      timeout: 15s
+      retries: 5
+      start_period: 90s
     networks:
       - app-network
 
@@ -177,6 +187,7 @@ services:
       # Replace this environment variable if you are using a custom
       # domain to host the stack
       BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT}"
+      ALLOW_PRIVATE_BACKEND_URL: "${ALLOW_PRIVATE_BACKEND_URL:-true}"
 
       # Database configuration (using containerized postgres)
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
@@ -205,6 +216,15 @@ services:
       TURN_SECRET: "${TURN_SECRET}"
 
       OSS_JWT_SECRET: "${OSS_JWT_SECRET}"
+
+      # AI Provider Configuration
+      GROQ_API_KEY: "${GROQ_API_KEY}"
+      SARVAM_API_KEY: "${SARVAM_API_KEY}"
+
+      # Vobiz Configuration
+      VOBIZ_AUTH_ID: "${VOBIZ_AUTH_ID}"
+      VOBIZ_AUTH_TOKEN: "${VOBIZ_AUTH_TOKEN}"
+      VOBIZ_DID_NUMBER: "${VOBIZ_DID_NUMBER}"
 
       # Twilio Configuration
       TWILIO_ACCOUNT_SID: "${TWILIO_ACCOUNT_SID}"
@@ -238,6 +258,7 @@ services:
       # Replace this environment variable if you are using a custom
       # domain to host the stack
       BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT}"
+      ALLOW_PRIVATE_BACKEND_URL: "${ALLOW_PRIVATE_BACKEND_URL:-true}"
 
       # Database configuration (using containerized postgres)
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
@@ -266,6 +287,15 @@ services:
       TURN_SECRET: "${TURN_SECRET}"
 
       OSS_JWT_SECRET: "${OSS_JWT_SECRET}"
+
+      # AI Provider Configuration
+      GROQ_API_KEY: "${GROQ_API_KEY}"
+      SARVAM_API_KEY: "${SARVAM_API_KEY}"
+
+      # Vobiz Configuration
+      VOBIZ_AUTH_ID: "${VOBIZ_AUTH_ID}"
+      VOBIZ_AUTH_TOKEN: "${VOBIZ_AUTH_TOKEN}"
+      VOBIZ_DID_NUMBER: "${VOBIZ_DID_NUMBER}"
 
       # Twilio Configuration
       TWILIO_ACCOUNT_SID: "${TWILIO_ACCOUNT_SID}"
@@ -305,7 +335,7 @@ services:
       - "3000:3010"
     depends_on:
       api:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test:
         [
@@ -322,6 +352,7 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared-tunnel
+    restart: unless-stopped
     command: tunnel --no-autoupdate --protocol http2 --url http://api:8000 --metrics 0.0.0.0:2000
     ports:
       - "2000:2000" # Expose metrics endpoint

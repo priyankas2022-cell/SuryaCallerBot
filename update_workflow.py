@@ -24,7 +24,7 @@ def update_workflow():
             prompt = data.get('prompt', '')
             # Remove the specific line
             new_prompt = prompt.replace("Tell them that we are connecting you to the suryacaller.", "")
-            new_prompt = new_prompt.replace("Start your conversation by greeting them politely .", "Start your conversation by greeting them politely and introducing yourself as Sam from Surya International.")
+            new_prompt = new_prompt.replace("Start your conversation by greeting them politely .", "Start your conversation by greeting them politely and introducing yourself as Riya from Surya International.")
             data['prompt'] = new_prompt
             # Disable delayed start
             data['delayed_start'] = False

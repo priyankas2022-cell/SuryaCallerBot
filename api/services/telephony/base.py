@@ -319,6 +319,7 @@ class TelephonyProvider(ABC):
         transfer_id: str,
         conference_name: str,
         timeout: int = 30,
+        original_call_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Dict[str, Any]:
         """
@@ -329,6 +330,9 @@ class TelephonyProvider(ABC):
             transfer_id: Unique identifier for tracking this transfer
             conference_name: Name of the conference to join the destination into
             timeout: Transfer timeout in seconds
+            original_call_id: Provider call identifier of the in-progress call being
+                transferred. Required by providers that redirect the live call
+                (e.g. Vobiz) rather than dialing a separate leg (e.g. Twilio).
             **kwargs: Provider-specific additional parameters
 
         Returns:

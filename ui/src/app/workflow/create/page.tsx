@@ -230,7 +230,7 @@ export default function CreateWorkflowPage() {
                                     A voice agent workflow has been generated for your use case, with some artificial data and sample actions.
                                 </p>
                                 <p>
-                                    The voice bot is pre-set to communicate in English with an American accent.
+                                    The voice bot is pre-set to communicate in Hindi with a native Hindi accent.
                                 </p>
                                 <p>
                                     Next steps would be to test the voice bot using web call, and then modify it to suit your use case.

@@ -48,14 +48,14 @@ class UserIdleHandler:
         if self._retry_count == 1:
             message = {
                 "role": "system",
-                "content": "The user has been quiet. Politely and briefly ask if they're still there in the language that the user has been speaking so far.",
+                "content": "The user has been quiet. Politely and briefly ask if they're still there in the language that the user has been speaking so far. Say 'Kya aap vahaan hain?' (क्या आप वहाँ हैं?) or similar.",
             }
             await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
             return
 
         message = {
             "role": "system",
-            "content": "The user has been quiet. We will be disconnecting the call now. Wish them a good day in the language that the user has been speaking so far.",
+            "content": "The user has been quiet. We will be disconnecting the call now. Wish them a good day in the language that the user has been speaking so far. Use the correct grammar: say 'Aapka din shubh ho' (आपका दिन शुभ हो), NOT 'aapko din shubh ho'.",
         }
         await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
         await self._engine.end_call_with_reason(

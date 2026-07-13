@@ -27,6 +27,7 @@ from api.services.pipecat.realtime_feedback_observer import (
     RealtimeFeedbackObserver,
     register_turn_log_handlers,
 )
+from api.services.pipecat.processors.language_detection_processor import LanguageSwitchProcessor
 from api.services.pipecat.service_factory import (
     create_llm_service,
     create_stt_service,
@@ -60,7 +61,6 @@ from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.turns.user_mute import (
     CallbackUserMuteStrategy,
     FunctionCallUserMuteStrategy,
-    MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 from pipecat.turns.user_start import (
     ExternalUserTurnStartStrategy,
@@ -132,6 +132,7 @@ async def run_pipeline_twilio(
         workflow_run_id,
         user_id,
         audio_config=audio_config,
+        client_already_connected=True,
     )
 
 
@@ -193,6 +194,7 @@ async def run_pipeline_vonage(
             user_id,
             call_context_vars={},
             audio_config=audio_config,
+            client_already_connected=True,
         )
 
     except Exception as e:
@@ -250,6 +252,7 @@ async def run_pipeline_ari(
             workflow_run_id,
             user_id,
             audio_config=audio_config,
+            client_already_connected=True,
         )
 
     except Exception as e:
@@ -273,7 +276,16 @@ async def run_pipeline_vobiz(
     set_current_run_id(workflow_run_id)
 
     cost_info = {"call_id": call_id}
-    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
+    # Also persist call_id into gathered_context (not just cost_info): the
+    # transfer-call tool reads gathered_context["call_id"] as the live call's
+    # UUID to redirect via Vobiz's Call Modify API. Inbound calls already get
+    # this from _create_inbound_workflow_run; outbound calls only learn the
+    # real call_id here once the WebSocket connects, so without this the
+    # transfer tool sees no original_call_id, Vobiz's transfer_call() raises,
+    # and the call ends instead of transferring.
+    await db_client.update_workflow_run(
+        workflow_run_id, cost_info=cost_info, gathered_context={"call_id": call_id}
+    )
 
     workflow = await db_client.get_workflow(workflow_id, user_id)
     vad_config = None
@@ -311,6 +323,7 @@ async def run_pipeline_vobiz(
             workflow_run_id,
             user_id,
             audio_config=audio_config,
+            client_already_connected=True,
         )
         logger.info(f"[run {workflow_run_id}] Vobiz pipeline completed successfully")
 
@@ -374,6 +387,7 @@ async def run_pipeline_cloudonix(
         workflow_run_id,
         user_id,
         audio_config=audio_config,
+        client_already_connected=True,
     )
 
 
@@ -429,6 +443,7 @@ async def _run_pipeline(
     user_id: int,
     call_context_vars: dict = {},
     audio_config: AudioConfig = None,
+    client_already_connected: bool = False,
 ) -> None:
     """
     Run the pipeline with the given transport and configuration
@@ -464,8 +479,8 @@ async def _run_pipeline(
 
     # Extract configurations from workflow configurations
     max_call_duration_seconds = 300  # Default 5 minutes
-    max_user_idle_timeout = 10.0  # Default 10 seconds
-    smart_turn_stop_secs = 2.0  # Default 2 seconds for incomplete turn timeout
+    max_user_idle_timeout = 20.0  # Default 20 seconds
+    smart_turn_stop_secs = 1.0  # Default 1 second for incomplete turn timeout
     turn_stop_strategy = "transcription"  # Default to transcription-based detection
     keyterms = None  # Dictionary words for STT boosting
 
@@ -505,19 +520,53 @@ async def _run_pipeline(
     logger.info(f"🔧 STT config: {user_config.stt}")
     logger.info(f"🔧 TTS config: {user_config.tts}")
     logger.info(f"🔧 LLM config: {user_config.llm}")
+    missing = []
     if not user_config.stt:
-        raise ValueError("STT service not configured. Please configure STT in Model Configurations > Speech-to-Text.")
+        missing.append("STT (Speech-to-Text)")
     if not user_config.tts:
-        raise ValueError("TTS service not configured. Please configure TTS in Model Configurations > Text-to-Speech.")
+        missing.append("TTS (Text-to-Speech)")
     if not user_config.llm:
-        raise ValueError("LLM service not configured. Please configure LLM in Model Configurations > LLM.")
+        missing.append("LLM")
+    if missing:
+        msg = f"Required AI services not configured: {', '.join(missing)}. Please configure them in Model Configurations."
+        logger.error(msg)
+        await db_client.update_workflow_run(
+            workflow_run_id,
+            is_completed=True,
+            state="failed",
+            gathered_context={"error": msg},
+        )
+        raise HTTPException(status_code=503, detail=msg)
     logger.info(f"🔧 STT: {user_config.stt.provider}/{user_config.stt.model}")
     logger.info(f"🔧 TTS: {user_config.tts.provider}/{user_config.tts.model}")
     logger.info(f"🔧 LLM: {user_config.llm.provider}/{user_config.llm.model}")
-    stt = create_stt_service(user_config, audio_config, keyterms=keyterms)
-    tts = create_tts_service(user_config, audio_config)
-    llm = create_llm_service(user_config)
+    try:
+        stt = create_stt_service(user_config, audio_config, keyterms=keyterms)
+        tts = create_tts_service(user_config, audio_config)
+        llm = create_llm_service(user_config)
+    except HTTPException:
+        raise
+    except Exception as e:
+        msg = f"Failed to initialize AI services: {str(e)}"
+        logger.error(msg, exc_info=True)
+        await db_client.update_workflow_run(
+            workflow_run_id,
+            is_completed=True,
+            state="failed",
+            gathered_context={"error": msg},
+        )
+        raise HTTPException(status_code=503, detail=msg)
     logger.info(f"✅ STT: {type(stt).__name__}, TTS: {type(tts).__name__}, LLM: {type(llm).__name__}")
+
+    # Enable language detection and dynamic TTS language switching when both STT and TTS
+    # are Sarvam. Detects Hindi (primary) and Odia (secondary); falls back to Hindi.
+    language_switch_processor = None
+    if (
+        user_config.stt.provider == ServiceProviders.SARVAM.value
+        and user_config.tts.provider == ServiceProviders.SARVAM.value
+    ):
+        language_switch_processor = LanguageSwitchProcessor()
+        logger.info("Language switch processor enabled (primary: Hindi, secondary: Odia)")
 
     workflow_graph = WorkflowGraph(
         ReactFlowDTO.model_validate(workflow.workflow_definition_with_fallback)
@@ -619,8 +668,8 @@ async def _run_pipeline(
     if is_deepgram_flux:
         user_turn_strategies = UserTurnStrategies(
             start=[
-                VADUserTurnStartStrategy(enable_interruptions=False),
-                ExternalUserTurnStartStrategy(enable_interruptions=False),
+                VADUserTurnStartStrategy(enable_interruptions=True),
+                ExternalUserTurnStartStrategy(enable_interruptions=True),
             ],
             stop=[ExternalUserTurnStopStrategy()],
         )
@@ -628,7 +677,7 @@ async def _run_pipeline(
         # Smart Turn Analyzer: best for longer responses with natural pauses
         smart_turn_params = SmartTurnParams(stop_secs=smart_turn_stop_secs)
         user_turn_strategies = UserTurnStrategies(
-            start=[VADUserTurnStartStrategy(enable_interruptions=False), TranscriptionUserTurnStartStrategy(enable_interruptions=False)],
+            start=[VADUserTurnStartStrategy(enable_interruptions=True), TranscriptionUserTurnStartStrategy(enable_interruptions=True)],
             stop=[
                 TurnAnalyzerUserTurnStopStrategy(
                     turn_analyzer=LocalSmartTurnAnalyzerV3(params=smart_turn_params)
@@ -638,14 +687,13 @@ async def _run_pipeline(
     else:
         # Transcription-based (default): best for short 1-2 word responses
         user_turn_strategies = UserTurnStrategies(
-            start=[VADUserTurnStartStrategy(enable_interruptions=False), TranscriptionUserTurnStartStrategy(enable_interruptions=False)],
-            stop=[SpeechTimeoutUserTurnStopStrategy()],
+            start=[VADUserTurnStartStrategy(enable_interruptions=True), TranscriptionUserTurnStartStrategy(enable_interruptions=True)],
+            stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.25)],
         )
 
     # Create user mute strategies
     # - CallbackUserMuteStrategy: mutes based on engine's _mute_pipeline state
     user_mute_strategies = [
-        MuteUntilFirstBotCompleteUserMuteStrategy(),
         FunctionCallUserMuteStrategy(),
         CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
     ]
@@ -654,7 +702,7 @@ async def _run_pipeline(
         user_turn_strategies=user_turn_strategies,
         user_mute_strategies=user_mute_strategies,
         user_idle_timeout=max_user_idle_timeout,
-        vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.4)),  # More breathing room
+        vad_analyzer=SileroVADAnalyzer(params=VADParams(start_secs=0.5, stop_secs=0.25)),  # start_secs=0.5 filters brief noise/echo bursts that cause false interruptions
     )
     context_aggregator = LLMContextAggregatorPair(
         context, assistant_params=assistant_params, user_params=user_params
@@ -718,6 +766,7 @@ async def _run_pipeline(
         pipeline_engine_callback_processor,
         pipeline_metrics_aggregator,
         voicemail_detector=voicemail_detector,
+        language_switch_processor=language_switch_processor,
     )
 
     # Create pipeline task with audio configuration
@@ -779,6 +828,7 @@ async def _run_pipeline(
         in_memory_logs_buffer=in_memory_logs_buffer,
         pipeline_metrics_aggregator=pipeline_metrics_aggregator,
         audio_config=audio_config,
+        client_already_connected=client_already_connected,
     )
 
     register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)
@@ -791,6 +841,18 @@ async def _run_pipeline(
         logger.info(f"Task completed for run {workflow_run_id}")
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")
+    except Exception as e:
+        logger.error(f"Pipeline task failed for run {workflow_run_id}: {e}", exc_info=True)
+        try:
+            await db_client.update_workflow_run(
+                workflow_run_id,
+                is_completed=True,
+                state="failed",
+                gathered_context={"error": f"Pipeline error: {str(e)}"},
+            )
+        except Exception as db_err:
+            logger.error(f"Failed to mark workflow run {workflow_run_id} as failed: {db_err}")
+        raise
     finally:
         ContextProviderRegistry.remove_providers(str(workflow_run_id))
         logger.debug(f"Cleaned up context providers for workflow run {workflow_run_id}")

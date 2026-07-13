@@ -487,7 +487,7 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
         default="nova-3-general", json_schema_extra={"examples": DEEPGRAM_STT_MODELS}
     )
     language: str = Field(
-        default="multi",
+        default="hi",
         json_schema_extra={
             "examples": DEEPGRAM_LANGUAGES,
             "model_options": {
@@ -535,7 +535,7 @@ class DograhSTTService(BaseSTTConfiguration):
         default="default", json_schema_extra={"examples": DOGRAH_STT_MODELS}
     )
     language: str = Field(
-        default="multi", json_schema_extra={"examples": DOGRAH_STT_LANGUAGES}
+        default="hi", json_schema_extra={"examples": DOGRAH_STT_LANGUAGES}
     )
     api_key: str
 

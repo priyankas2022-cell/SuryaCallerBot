@@ -88,6 +88,11 @@ class CallTransferManager:
     async def publish_transfer_event(self, event: TransferEvent) -> None:
         """Publish transfer event to Redis channel.
 
+        Also durably stores the event for a short TTL so that
+        wait_for_transfer_completion can pick it up even if it was published
+        before the subscriber started listening (pub/sub messages are
+        otherwise lost in that case).
+
         Args:
             event: Transfer event to publish
         """
@@ -97,11 +102,47 @@ class CallTransferManager:
                 event.timestamp = time.time()
 
             redis = await self._get_redis()
+            event_json = event.to_json()
+
+            result_key = TransferRedisChannels.transfer_result_key(event.transfer_id)
+            await redis.setex(result_key, 60, event_json)
+
             channel = TransferRedisChannels.transfer_events(event.transfer_id)
-            await redis.publish(channel, event.to_json())
+            await redis.publish(channel, event_json)
             logger.info(f"Published {event.type} event for {event.transfer_id}")
         except Exception as e:
             logger.error(f"Failed to publish transfer event: {e}")
+
+    _TERMINAL_EVENT_TYPES = [
+        TransferEventType.TRANSFER_ANSWERED,  # Call answered = transfer successful
+        TransferEventType.TRANSFER_COMPLETED,
+        TransferEventType.TRANSFER_FAILED,
+        TransferEventType.TRANSFER_CANCELLED,
+        TransferEventType.TRANSFER_TIMEOUT,
+    ]
+
+    async def _get_durable_terminal_result(
+        self, transfer_id: str
+    ) -> Optional[TransferEvent]:
+        """Check the durably-stored result for an already-completed transfer.
+
+        Providers that redirect a live call synchronously (e.g. Vobiz) can
+        publish the completion event before we start listening for it, which
+        would otherwise be silently lost (Redis pub/sub does not queue
+        messages for late subscribers).
+        """
+        redis = await self._get_redis()
+        result_key = TransferRedisChannels.transfer_result_key(transfer_id)
+        data = await redis.get(result_key)
+        if not data:
+            return None
+        try:
+            event = TransferEvent.from_json(data)
+            if event.type in self._TERMINAL_EVENT_TYPES:
+                return event
+        except Exception as e:
+            logger.error(f"Failed to parse durable transfer result: {e}")
+        return None
 
     async def wait_for_transfer_completion(
         self, transfer_id: str, timeout_seconds: float = 30.0
@@ -120,10 +161,23 @@ class CallTransferManager:
         pubsub = redis.pubsub()
 
         try:
+            # Fast path: the result may already be in before we even subscribe.
+            early_result = await self._get_durable_terminal_result(transfer_id)
+            if early_result:
+                logger.info(f"Transfer result for {transfer_id} already available")
+                return early_result
+
             await pubsub.subscribe(channel)
             logger.info(
                 f"Waiting for transfer completion on {channel} (timeout: {timeout_seconds}s)"
             )
+
+            # Close the narrow race between the check above and subscribe()
+            # completing.
+            post_subscribe_result = await self._get_durable_terminal_result(transfer_id)
+            if post_subscribe_result:
+                logger.info(f"Transfer result for {transfer_id} already available")
+                return post_subscribe_result
 
             # Wait for completion event with timeout
             async def wait_for_message():
@@ -136,16 +190,7 @@ class CallTransferManager:
                             )
 
                             # Check if this is a completion event
-                            if (
-                                event.type
-                                in [
-                                    TransferEventType.TRANSFER_ANSWERED,  # Call answered = transfer successful
-                                    TransferEventType.TRANSFER_COMPLETED,
-                                    TransferEventType.TRANSFER_FAILED,
-                                    TransferEventType.TRANSFER_CANCELLED,
-                                    TransferEventType.TRANSFER_TIMEOUT,
-                                ]
-                            ):
+                            if event.type in self._TERMINAL_EVENT_TYPES:
                                 return event
                         except Exception as e:
                             logger.error(f"Failed to parse transfer event: {e}")

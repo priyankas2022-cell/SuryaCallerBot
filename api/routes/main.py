@@ -75,9 +75,14 @@ async def health() -> HealthResponse:
     from api.utils.common import get_backend_endpoints
 
     logger.debug("Health endpoint called")
-    backend_endpoint, _ = await get_backend_endpoints()
+    try:
+        backend_endpoint, _ = await get_backend_endpoints()
+        status = "ok"
+    except ValueError:
+        backend_endpoint = ""
+        status = "degraded"
     return HealthResponse(
-        status="ok",
+        status=status,
         version=APP_VERSION,
         backend_api_endpoint=backend_endpoint,
         deployment_mode=DEPLOYMENT_MODE,

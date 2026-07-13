@@ -64,6 +64,7 @@ services:
       MINIO_BUCKET: voice-audio
       MINIO_SECURE: "false"
       BACKEND_API_ENDPOINT: ${BACKEND_API_ENDPOINT}
+      ALLOW_PRIVATE_BACKEND_URL: ${ALLOW_PRIVATE_BACKEND_URL:-true}
       WAIT_FOR_PROCESSES: "true"
       LOG_TO_FILE: "false"
     ports:

@@ -100,3 +100,14 @@ class TransferRedisChannels:
     def transfer_context_key(transfer_id: str) -> str:
         """Redis key for transfer context storage."""
         return f"transfer:context:{transfer_id}"
+
+    @staticmethod
+    def transfer_result_key(transfer_id: str) -> str:
+        """Redis key for durably storing the last published transfer event.
+
+        Pub/sub messages are lost if published before a subscriber is
+        listening. Some providers (e.g. Vobiz) can redirect a live call and
+        hit our completion webhook faster than we can subscribe, so callers
+        also check this durable key to close that race.
+        """
+        return f"transfer:result:{transfer_id}"

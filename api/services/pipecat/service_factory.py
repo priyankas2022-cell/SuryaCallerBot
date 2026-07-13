@@ -61,8 +61,8 @@ def create_stt_service(
             )
 
         # Other models than flux
-        # Use language from user config, defaulting to "multi" for multilingual support
-        language = getattr(user_config.stt, "language", None) or "multi"
+        # Use language from user config, defaulting to "hi" for Hindi
+        language = getattr(user_config.stt, "language", None) or "hi"
         live_options = LiveOptions(
             language=language,
             profanity_filter=False,
@@ -88,7 +88,7 @@ def create_stt_service(
         )
     elif user_config.stt.provider == ServiceProviders.DOGRAH.value:
         base_url = MPS_API_URL.replace("http://", "ws://").replace("https://", "wss://")
-        language = getattr(user_config.stt, "language", None) or "multi"
+        language = getattr(user_config.stt, "language", None) or "hi"
         return DograhSTTService(
             base_url=base_url,
             api_key=user_config.stt.api_key,
@@ -115,13 +115,13 @@ def create_stt_service(
         }
         language = getattr(user_config.stt, "language", None)
         pipecat_language = language_mapping.get(language, Language.HI_IN)
-        
+
         # Backward compatibility: map legacy "vittha" model to "saarika:v2.5"
         model = user_config.stt.model
         if model == "vittha":
             logger.warning("Legacy model 'vittha' detected, mapping to 'saarika:v2.5'")
             model = "saarika:v2.5"
-        
+
         return SarvamSTTService(
             api_key=user_config.stt.api_key,
             model=model,
@@ -138,7 +138,7 @@ def create_stt_service(
             OperatingPoint,
         )
 
-        language = getattr(user_config.stt, "language", None) or "en"
+        language = getattr(user_config.stt, "language", None) or "hi"
         # Map model field to operating point (standard or enhanced)
         operating_point = (
             OperatingPoint.ENHANCED
@@ -247,6 +247,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             "te-IN": Language.TE,
         }
         language = getattr(user_config.tts, "language", None)
+        # Default to Hindi (primary language); language_switch_processor updates this dynamically
         pipecat_language = language_mapping.get(language, Language.HI)
 
         voice = getattr(user_config.tts, "voice", None) or "anushka"
@@ -255,7 +256,10 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             model=user_config.tts.model,
             voice_id=voice,
             sample_rate=audio_config.pipeline_sample_rate,
-            params=SarvamTTSService.InputParams(language=pipecat_language),
+            params=SarvamTTSService.InputParams(
+                language=pipecat_language,
+                enable_preprocessing=True,
+            ),
             text_filters=[xml_function_tag_filter],
         )
     else:
@@ -283,7 +287,7 @@ def create_llm_service(user_config):
             return OpenAILLMService(
                 api_key=user_config.llm.api_key,
                 model=model,
-                params=OpenAILLMService.InputParams(temperature=0.1),
+                params=OpenAILLMService.InputParams(temperature=0.3, max_tokens=150),
             )
     elif user_config.llm.provider == ServiceProviders.GROQ.value:
         # Use API key from config or environment as fallback
@@ -298,8 +302,8 @@ def create_llm_service(user_config):
             api_key=api_key,
             model=model,
             params=GroqLLMService.InputParams(
-                temperature=0.8,  # Natural, conversational responses
-                max_tokens=600,   # Prevent overly long responses but allow for reasoning
+                temperature=0.3,  # Lower = faster, more focused responses
+                max_tokens=200,   # Voice agents need short responses; keeps latency low
             ),
         )
     elif user_config.llm.provider == ServiceProviders.OPENROUTER.value:

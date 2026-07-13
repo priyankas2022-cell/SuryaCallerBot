@@ -1,4 +1,4 @@
-# Dograh - Project Overview
+# SmartAICaller - Project Overview
 
 Dograh is a voice AI platform for building and deploying conversational AI agents with telephony and WebRTC support.
 
@@ -22,6 +22,7 @@ dograh/
 - **Database**: PostgreSQL with SQLAlchemy (async)
 - **Cache/Queue**: Redis with ARQ for background tasks
 - **Storage**: MinIO (S3-compatible) for audio files
+
 
 ## Local Development
 

@@ -111,7 +111,7 @@ class UserConfigurationValidator:
         try:
             options = LiveOptions(
                 model="nova-2",
-                language="en-US",
+                language="hi",
                 smart_format=True,
             )
 

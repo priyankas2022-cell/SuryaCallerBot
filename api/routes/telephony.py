@@ -4,6 +4,7 @@ Consolidated from split modules for easier maintenance.
 """
 
 import json
+import os
 import uuid
 from datetime import UTC, datetime
 from typing import Optional
@@ -200,6 +201,26 @@ async def initiate_call(
     # Construct webhook URL based on provider type
     backend_endpoint, _ = await get_backend_endpoints()
 
+    # Reject calls when the backend URL is not publicly reachable (Docker/localhost fallbacks).
+    # Telephony providers like Vobiz and Twilio must be able to POST to the webhook URL, so
+    # private/Docker-internal addresses will always be rejected with "answer_url not valid".
+    # Allow bypass via ALLOW_PRIVATE_BACKEND_URL=true for local development only.
+    # In local environment, we default to allowing private backend URLs to simplify setup.
+    is_local = os.getenv("ENVIRONMENT", "local").lower() == "local"
+    default_allow_private = "true" if is_local else "false"
+    allow_private = os.getenv("ALLOW_PRIVATE_BACKEND_URL", default_allow_private).lower() == "true"
+    _PRIVATE_HOSTNAMES = ("localhost", "127.0.0.1", "host.docker.internal", "0.0.0.0")
+    if not allow_private and any(h in backend_endpoint for h in _PRIVATE_HOSTNAMES):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Cannot initiate call: the backend URL is not publicly accessible "
+                f"({backend_endpoint}). Set the BACKEND_API_ENDPOINT environment "
+                "variable to your public backend URL (e.g. your Cloudflare tunnel or "
+                "ngrok URL) so the telephony provider can reach the webhook."
+            ),
+        )
+
     webhook_endpoint = provider.WEBHOOK_ENDPOINT
 
     webhook_url = (
@@ -208,27 +229,62 @@ async def initiate_call(
         f"&user_id={user.id}"
         f"&workflow_run_id={workflow_run_id}"
     )
-    if user.selected_organization_id is not None:
-        webhook_url += f"&organization_id={user.selected_organization_id}"
+    # Always include organization_id so the webhook handler can resolve the provider config.
+    # Fall back to user_id when no organization is selected (single-user deployments).
+    effective_org_id = user.selected_organization_id if user.selected_organization_id is not None else user.id
+    webhook_url += f"&organization_id={effective_org_id}"
 
     keywords = {"workflow_id": request.workflow_id, "user_id": user.id}
 
     # Initiate call via provider
-    result = await provider.initiate_call(
-        to_number=phone_number,
-        webhook_url=webhook_url,
-        workflow_run_id=workflow_run_id,
-        **keywords,
-    )
+    try:
+        result = await provider.initiate_call(
+            to_number=phone_number,
+            webhook_url=webhook_url,
+            workflow_run_id=workflow_run_id,
+            **keywords,
+        )
+    except HTTPException as e:
+        # 4xx means the provider definitively rejected the request — call was never placed.
+        # Mark the run as failed so it doesn't stay orphaned in INITIALIZED state.
+        if e.status_code < 500:
+            logger.error(
+                f"Provider rejected call initiation ({e.status_code}) for workflow "
+                f"{request.workflow_id}: {e.detail}"
+            )
+            try:
+                await db_client.update_workflow_run(
+                    run_id=workflow_run_id,
+                    is_completed=True,
+                    state="failed",
+                    gathered_context={"error": f"Call initiation rejected by provider: {e.detail}"},
+                )
+            except Exception as db_err:
+                logger.error(f"Failed to mark workflow run {workflow_run_id} as failed: {db_err}")
+        raise
+    except Exception as e:
+        # For network/timeout errors we cannot be certain whether the provider received
+        # the request and queued the call before the connection dropped. Log clearly and
+        # do NOT mark the run as failed — if the call does connect, the WebSocket handler
+        # will process it normally.
+        logger.error(
+            f"Failed to initiate call for workflow {request.workflow_id}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to initiate call: {str(e)}")
 
     # Store provider type and any provider-specific metadata in workflow run context
-    gathered_context = {
-        "provider": provider.PROVIDER_NAME,
-        **(result.provider_metadata or {}),
-    }
-    await db_client.update_workflow_run(
-        run_id=workflow_run_id, gathered_context=gathered_context
-    )
+    # Non-critical: the call is already placed, so don't fail the request on DB errors here
+    try:
+        gathered_context = {
+            "provider": provider.PROVIDER_NAME,
+            **(result.provider_metadata or {}),
+        }
+        await db_client.update_workflow_run(
+            run_id=workflow_run_id, gathered_context=gathered_context
+        )
+    except Exception as e:
+        logger.error(f"Failed to update workflow run context after call initiation (call was placed): {e}")
 
     return {"message": f"Call initiated successfully with run name {workflow_run_name}"}
 
@@ -496,14 +552,25 @@ async def handle_twiml_webhook(
     Handle initial webhook from telephony provider.
     Returns provider-specific response (e.g., TwiML for Twilio).
     """
-
-    provider = await get_telephony_provider(organization_id or user_id)
-
-    response_content = await provider.get_webhook_response(
-        workflow_id, user_id, workflow_run_id
-    )
-
-    return HTMLResponse(content=response_content, media_type="application/xml")
+    try:
+        effective_org_id = organization_id or user_id
+        provider = await get_telephony_provider(effective_org_id)
+        response_content = await provider.get_webhook_response(
+            workflow_id, user_id, workflow_run_id
+        )
+        return HTMLResponse(content=response_content, media_type="application/xml")
+    except Exception as e:
+        logger.error(
+            f"Error generating TwiML for workflow={workflow_id} run={workflow_run_id}: {e}",
+            exc_info=True,
+        )
+        # Return a TwiML error response so Twilio hangs up cleanly instead of retrying
+        error_twiml = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>We are sorry, there was a configuration error. Please contact support.</Say>
+    <Hangup/>
+</Response>"""
+        return HTMLResponse(content=error_twiml, media_type="application/xml", status_code=200)
 
 
 @router.get("/ncco", include_in_schema=False)
@@ -895,7 +962,7 @@ async def handle_vonage_events(
 
 @router.post("/vobiz-xml", include_in_schema=False)
 async def handle_vobiz_xml_webhook(
-    workflow_id: int, user_id: int, workflow_run_id: int, organization_id: int
+    workflow_id: int, user_id: int, workflow_run_id: int, organization_id: Optional[int] = None
 ):
     """
     Handle initial webhook from Vobiz when call is answered.
@@ -909,19 +976,32 @@ async def handle_vobiz_xml_webhook(
         f"workflow_id={workflow_id}, user_id={user_id}, org_id={organization_id}"
     )
 
-    provider = await get_telephony_provider(organization_id)
+    try:
+        effective_org_id = organization_id or user_id
+        provider = await get_telephony_provider(effective_org_id)
 
-    logger.debug(f"[run {workflow_run_id}] Using provider: {provider.PROVIDER_NAME}")
+        logger.debug(f"[run {workflow_run_id}] Using provider: {provider.PROVIDER_NAME}")
 
-    response_content = await provider.get_webhook_response(
-        workflow_id, user_id, workflow_run_id
-    )
+        response_content = await provider.get_webhook_response(
+            workflow_id, user_id, workflow_run_id
+        )
 
-    logger.debug(
-        f"[run {workflow_run_id}] Vobiz XML response generated:\n{response_content}"
-    )
+        logger.debug(
+            f"[run {workflow_run_id}] Vobiz XML response generated:\n{response_content}"
+        )
 
-    return HTMLResponse(content=response_content, media_type="application/xml")
+        return HTMLResponse(content=response_content, media_type="application/xml")
+    except Exception as e:
+        logger.error(
+            f"Error generating Vobiz XML for workflow={workflow_id} run={workflow_run_id}: {e}",
+            exc_info=True,
+        )
+        error_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Speak voice="WOMAN">We are sorry, there was a configuration error. Please contact support.</Speak>
+    <Hangup/>
+</Response>"""
+        return HTMLResponse(content=error_xml, media_type="application/xml", status_code=200)
 
 
 @router.post("/vobiz/hangup-callback/{workflow_run_id}")
@@ -1744,3 +1824,97 @@ async def complete_transfer_function_call(transfer_id: str, request: Request):
         logger.error(f"Error completing transfer {transfer_id}: {e}")
 
     return {"status": "completed", "result": result}
+
+
+@router.post("/vobiz/transfer-connect/{transfer_id}", include_in_schema=False)
+async def handle_vobiz_transfer_connect(transfer_id: str, request: Request):
+    """Vobiz hits this ("aleg_url") once it has redirected the live call here.
+
+    Reaching this endpoint at all confirms the transfer redirect succeeded, so
+    we immediately report success back to the waiting transfer-call tool and
+    hand the caller off to Vobiz's own <Dial>, which bridges them directly to
+    the destination number (no conference needed for Vobiz).
+    """
+    destination = request.query_params.get("destination", "")
+    timeout = request.query_params.get("timeout", "30")
+    caller_id = request.query_params.get("caller_id", "")
+
+    logger.info(
+        f"Vobiz transfer-connect called for transfer_id={transfer_id}, "
+        f"destination={destination}, timeout={timeout}, caller_id={caller_id}"
+    )
+
+    if not destination:
+        logger.error(f"Missing destination for Vobiz transfer {transfer_id}")
+        error_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Speak voice="WOMAN">Sorry, there was an error connecting your transfer.</Speak>
+    <Hangup/>
+</Response>"""
+        return HTMLResponse(content=error_xml, media_type="application/xml")
+
+    call_transfer_manager = await get_call_transfer_manager()
+    transfer_context = await call_transfer_manager.get_transfer_context(transfer_id)
+    original_call_sid = transfer_context.original_call_sid if transfer_context else None
+    conference_name = transfer_context.conference_name if transfer_context else None
+
+    transfer_event = TransferEvent(
+        type=TransferEventType.TRANSFER_ANSWERED,
+        transfer_id=transfer_id,
+        original_call_sid=original_call_sid or "",
+        conference_name=conference_name,
+        message="Connecting your call now.",
+        status="success",
+        action="transfer_success",
+        end_call=False,
+    )
+    await call_transfer_manager.publish_transfer_event(transfer_event)
+
+    backend_endpoint, _ = await get_backend_endpoints()
+    result_url = f"{backend_endpoint}/api/v1/telephony/vobiz/transfer-result/{transfer_id}"
+
+    # Vobiz (like Plivo) expects numbers in <Number> without the leading "+",
+    # matching the same convention used for the outbound Call API elsewhere
+    # in this provider (see VobizProvider.initiate_call).
+    destination_xml = destination.lstrip("+")
+
+    # Without an explicit callerId, this leg goes out with no (or an invalid)
+    # CLI, which carriers can silently drop -- the destination never rings
+    # even though our side already reported the transfer as successful.
+    caller_id_attr = f' callerId="{caller_id}"' if caller_id else ""
+
+    vobiz_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Speak voice="WOMAN">Connecting you now, please hold.</Speak>
+    <Dial timeout="{timeout}" action="{result_url}" method="POST"{caller_id_attr}>
+        <Number>{destination_xml}</Number>
+    </Dial>
+    <Speak voice="WOMAN">Sorry, we were unable to connect your call.</Speak>
+    <Hangup/>
+</Response>"""
+
+    return HTMLResponse(content=vobiz_xml, media_type="application/xml")
+
+
+@router.post("/vobiz/transfer-result/{transfer_id}", include_in_schema=False)
+async def handle_vobiz_transfer_result(transfer_id: str, request: Request):
+    """Vobiz's <Dial> action callback, fired once the destination call ends.
+
+    By this point the transfer-call tool has already resolved (see
+    handle_vobiz_transfer_connect) and our own pipeline has disposed, since
+    Vobiz took over the live call as soon as it redirected here. This handler
+    only logs the final outcome and clears any leftover transfer context.
+    """
+    form_data = await request.form()
+    data = dict(form_data)
+    dial_status = data.get("DialStatus", "")
+
+    logger.info(
+        f"Vobiz transfer-result for transfer_id={transfer_id}: DialStatus={dial_status}, "
+        f"data={json.dumps(data)}"
+    )
+
+    call_transfer_manager = await get_call_transfer_manager()
+    await call_transfer_manager.remove_transfer_context(transfer_id)
+
+    return {"status": "logged", "dial_status": dial_status}

@@ -276,6 +276,20 @@ class CustomToolManager:
 
         return end_call_handler
 
+    async def _wait_for_bot_speech_to_finish(self, timeout: float = 8.0) -> None:
+        """Wait for a just-queued TTS frame to start and finish playing.
+
+        queue_frame() only enqueues the frame; it returns long before the audio
+        is actually synthesized and played out. Callers that need to fire an
+        external action (like redirecting the call) right after the bot speaks
+        must wait here first, or the action can race ahead of the audio.
+        """
+        deadline = time.monotonic() + timeout
+        while not self._engine._bot_is_speaking and time.monotonic() < deadline:
+            await asyncio.sleep(0.05)
+        while self._engine._bot_is_speaking and time.monotonic() < deadline:
+            await asyncio.sleep(0.05)
+
     def _create_transfer_call_handler(self, tool: Any, function_name: str):
         """Create a handler function for a transfer call tool.
 
@@ -357,6 +371,11 @@ class CustomToolManager:
                 if message_type == "custom" and custom_message:
                     logger.info(f"Playing pre-transfer message: {custom_message}")
                     await self._engine.task.queue_frame(TTSSpeakFrame(custom_message))
+                    # Vobiz's live-call redirect (fired right after this block) can
+                    # close our media transport almost instantly once triggered, so
+                    # without waiting here the message gets cut off mid-sentence and
+                    # the caller just hears the call go dead instead of a transfer.
+                    await self._wait_for_bot_speech_to_finish()
 
                 # Get organization ID for provider configuration
                 organization_id = await self.get_organization_id()
@@ -396,8 +415,13 @@ class CustomToolManager:
                 # Compute conference name from original call SID
                 conference_name = f"transfer-{original_call_sid}"
 
-                # Mute the pipeline
+                # Mute the pipeline and mark a transfer as in-flight. Providers
+                # that redirect the same live call (e.g. Vobiz) close our
+                # transport as part of that redirect; on_client_disconnected
+                # checks this flag so that expected disconnect isn't mistaken
+                # for the user hanging up.
                 self._engine.set_mute_pipeline(True)
+                self._engine.set_transfer_pending(True)
 
                 # Initiate transfer via provider with inline TwiML
                 transfer_result = await provider.transfer_call(
@@ -405,6 +429,7 @@ class CustomToolManager:
                     transfer_id=transfer_id,
                     conference_name=conference_name,
                     timeout=timeout_seconds,
+                    original_call_id=original_call_sid,
                 )
 
                 call_sid = transfer_result.get("call_sid")
@@ -502,6 +527,7 @@ class CustomToolManager:
                     f"Transfer call tool '{function_name}' execution failed: {e}"
                 )
                 self._engine.set_mute_pipeline(False)
+                self._engine.set_transfer_pending(False)
 
                 # Handle generic exception with user-friendly message
                 exception_result = {
@@ -548,12 +574,32 @@ class CustomToolManager:
                 properties=response_properties,
             )
 
-            await self._engine.end_call_with_reason(
-                EndTaskReason.TRANSFER_CALL.value, abort_immediately=False
-            )
+            # transfer_call_sid is only set when the provider dialed a *separate*
+            # leg into a conference (Twilio-style) -- in that case ending our
+            # pipeline releases our side of the original <Connect><Stream> so the
+            # caller can be bridged. Providers that redirect the *same* live call
+            # in place (Vobiz-style) have no transfer_call_sid: the provider has
+            # already moved the call off our transport onto its own <Dial> by the
+            # time we get here, so forcibly closing our transport now would race
+            # with that in-progress dial and can get it cancelled before the
+            # destination even rings. Leave the pipeline idle and let the
+            # transport close naturally (or the provider's hangup callback
+            # finalize the run) instead of tearing it down ourselves.
+            if transfer_call_sid:
+                await self._engine.end_call_with_reason(
+                    EndTaskReason.TRANSFER_CALL.value, abort_immediately=False
+                )
+            else:
+                logger.info(
+                    "Live-call-redirect transfer succeeded; leaving pipeline idle "
+                    "instead of ending it, to avoid cancelling the in-progress dial"
+                )
 
         elif action == "transfer_failed":
-            # Transfer failed - inform user via LLM and then end the call
+            # Transfer failed - the call continues normally, so a disconnect
+            # from this point on is a real hangup again, not a transfer handoff.
+            self._engine.set_transfer_pending(False)
+
             reason = result.get("reason", "unknown")
             logger.info(f"Transfer failed ({reason}), informing user")
 
@@ -566,6 +612,7 @@ class CustomToolManager:
             )
         else:
             # Unknown action, treat as generic success
+            self._engine.set_transfer_pending(False)
             logger.warning(f"Unknown transfer action: {action}, treating as success")
             await function_call_params.result_callback(result)
 

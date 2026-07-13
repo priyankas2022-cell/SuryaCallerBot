@@ -5,6 +5,7 @@ Vobiz implementation of the TelephonyProvider interface.
 import json
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from urllib.parse import quote
 
 import aiohttp
 from fastapi import HTTPException
@@ -82,7 +83,10 @@ class VobizProvider(TelephonyProvider):
         to_number_clean = to_number.lstrip("+")
         from_number_clean = from_number.lstrip("+")
 
-        # Prepare call data (JSON format)
+        # Prepare call data (JSON format).
+        # Only include parameters that the Vobiz REST API actually accepts.
+        # Do NOT add kwargs here — callers pass internal IDs (workflow_id, user_id)
+        # that are not valid Vobiz API parameters and will cause request rejection.
         data = {
             "from": from_number_clean,
             "to": to_number_clean,
@@ -90,22 +94,15 @@ class VobizProvider(TelephonyProvider):
             "answer_method": "POST",
         }
 
-        # Add hangup callback if workflow_run_id provided
+        # Add hangup/ring callbacks when a workflow run ID is available
         if workflow_run_id:
             backend_endpoint, _ = await get_backend_endpoints()
             hangup_url = f"{backend_endpoint}/api/v1/telephony/vobiz/hangup-callback/{workflow_run_id}"
             ring_url = f"{backend_endpoint}/api/v1/telephony/vobiz/ring-callback/{workflow_run_id}"
-            data.update(
-                {
-                    "hangup_url": hangup_url,
-                    "hangup_method": "POST",
-                    "ring_url": ring_url,
-                    "ring_method": "POST",
-                }
-            )
-
-        # Add optional parameters
-        data.update(kwargs)
+            data["hangup_url"] = hangup_url
+            data["hangup_method"] = "POST"
+            data["ring_url"] = ring_url
+            data["ring_method"] = "POST"
 
         # Make the API request
         headers = {
@@ -114,17 +111,37 @@ class VobizProvider(TelephonyProvider):
             "Content-Type": "application/json",
         }
 
+        logger.info(
+            f"Vobiz outbound call request to {endpoint} — "
+            f"from={from_number_clean}, to={to_number_clean}, "
+            f"answer_url={webhook_url}"
+        )
+
         async with aiohttp.ClientSession() as session:
             async with session.post(endpoint, json=data, headers=headers) as response:
                 if response.status != 201:
-                    error_data = await response.text()
-                    logger.error(f"Vobiz API error: {error_data}")
+                    try:
+                        error_data = await response.json()
+                        error_detail = json.dumps(error_data)
+                    except Exception:
+                        error_detail = await response.text()
+                    logger.error(
+                        f"Vobiz API error (HTTP {response.status}): {error_detail}. "
+                        f"Request data: from={from_number_clean}, to={to_number_clean}, "
+                        f"answer_url={webhook_url}"
+                    )
                     raise HTTPException(
                         status_code=response.status,
-                        detail=f"Failed to initiate Vobiz call: {error_data}",
+                        detail=f"Failed to initiate Vobiz call: {error_detail}",
                     )
 
-                response_data = await response.json()
+                try:
+                    response_data = await response.json()
+                except Exception as parse_err:
+                    raw_text = await response.text()
+                    logger.error(f"Failed to parse Vobiz 201 response as JSON: {parse_err}. Body: {raw_text[:200]}")
+                    raise HTTPException(status_code=502, detail=f"Unexpected response from Vobiz: {raw_text[:200]}")
+
                 logger.info(f"Vobiz API response: {response_data}")
 
                 # Extract call_uuid with multiple fallback options
@@ -542,21 +559,94 @@ class VobizProvider(TelephonyProvider):
         transfer_id: str,
         conference_name: str,
         timeout: int = 30,
+        original_call_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Dict[str, Any]:
         """
-        Vobiz provider does not support call transfers.
+        Initiate a call transfer via Vobiz's native Transfer API.
 
-        Raises:
-            NotImplementedError: Vobiz call transfers are yet to be implemented
+        Unlike Twilio (which dials a separate leg into a conference), Vobiz
+        transfers work by redirecting the live call (identified by its call
+        UUID) to new XML instructions. We point the caller leg ("aleg") at
+        our transfer-connect webhook, which returns XML that speaks a short
+        message and then <Dial>s the destination directly -- Vobiz bridges
+        the existing caller to the destination itself, no conference needed.
+
+        Docs: https://docs.vobiz.ai/call/transfer-call
         """
-        raise NotImplementedError("Vobiz provider does not support call transfers")
+        if not self.validate_config():
+            raise ValueError("Vobiz provider not properly configured")
+
+        if not original_call_id:
+            raise ValueError(
+                "Vobiz transfer requires original_call_id (the live call's UUID)"
+            )
+
+        backend_endpoint, _ = await get_backend_endpoints()
+        destination_encoded = quote(destination, safe="")
+        # Pass one of our registered DIDs through as the transferred leg's
+        # caller ID. Without an explicit callerId, Vobiz's <Dial> presents no
+        # (or an invalid) CLI on the outgoing leg, which Indian carriers can
+        # silently drop under TRAI regulations -- the destination never
+        # rings, and since our own transport has already been redirected
+        # away by this point, it looks indistinguishable from the call just
+        # ending instead of transferring.
+        caller_id = self.from_numbers[0].lstrip("+") if self.from_numbers else ""
+        caller_id_encoded = quote(caller_id, safe="")
+        aleg_url = (
+            f"{backend_endpoint}/api/v1/telephony/vobiz/transfer-connect/{transfer_id}"
+            f"?destination={destination_encoded}&timeout={timeout}"
+            f"&caller_id={caller_id_encoded}"
+        )
+
+        endpoint = f"{self.base_url}/v1/Account/{self.auth_id}/Call/{original_call_id}/"
+        headers = {
+            "X-Auth-ID": self.auth_id,
+            "X-Auth-Token": self.auth_token,
+            "Content-Type": "application/json",
+        }
+        data = {
+            "legs": "aleg",
+            "aleg_url": aleg_url,
+            "aleg_method": "POST",
+        }
+
+        logger.info(
+            f"Vobiz transfer request for call {original_call_id} -> {destination} "
+            f"(transfer_id={transfer_id})"
+        )
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(endpoint, json=data, headers=headers) as response:
+                response_text = await response.text()
+                if response.status not in (200, 202):
+                    logger.error(
+                        f"Vobiz transfer API error (HTTP {response.status}): {response_text}"
+                    )
+                    raise Exception(
+                        f"Vobiz transfer API failed with status {response.status}: {response_text}"
+                    )
+
+                try:
+                    response_data = json.loads(response_text) if response_text else {}
+                except Exception:
+                    response_data = {"raw": response_text}
+
+                logger.info(f"Vobiz transfer accepted: {response_data}")
+
+        return {
+            "call_sid": original_call_id,
+            "status": "transfer_initiated",
+            "provider": self.PROVIDER_NAME,
+            "to_number": destination,
+            "raw_response": response_data,
+        }
 
     def supports_transfers(self) -> bool:
         """
-        Vobiz does not support call transfers.
+        Vobiz supports call transfers via its native live-call Transfer API.
 
         Returns:
-            False - Vobiz provider does not support call transfers
+            True - Vobiz provider supports call transfers
         """
-        return False
+        return True

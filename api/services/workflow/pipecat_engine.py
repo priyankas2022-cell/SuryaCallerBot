@@ -95,6 +95,13 @@ class PipecatEngine:
         # Controls whether user input should be muted
         self._mute_pipeline: bool = False
 
+        # True while a call-transfer tool has redirected the live call to the
+        # telephony provider (e.g. Vobiz). Providers that redirect the same
+        # live call rather than dialing a separate leg close our transport as
+        # part of that redirect, which would otherwise be misread as the user
+        # hanging up.
+        self._transfer_pending: bool = False
+
         # Tracks whether the bot is currently speaking (for allow_interrupt logic)
         self._bot_is_speaking: bool = False
 
@@ -218,13 +225,16 @@ class PipecatEngine:
                     This way, when we do set_node from within this function, and go for LLM completion with updated
                     system prompts, the context is updated with function call result.
                     """
-                    # FIXME: There is a potential race condition, when we generate LLM Completion from UserContextAggregator
-                    # with FunctionCallResultFrame and we call end_call_with_reason where we queue EndFrame or CancelFrame.
-                    # If EndFrame reaches the LLM Processor before the ContextFrame, we might never run generation which
-                    # might be intended
-
-                    # Queue EndFrame if we just transitioned to EndNode
+                    # This callback runs as its own concurrent task (see
+                    # llm_response_universal.py), independent of the LLM
+                    # generation/TTS for the new node's message that the context
+                    # push above triggers. That generation takes real time
+                    # (LLM + TTS network calls), so without waiting here the
+                    # EndFrame queued below can reach the pipeline before the
+                    # end node's own message is ever spoken, ending the call
+                    # abruptly with no explanation to the user.
                     if self._current_node.is_end:
+                        await self._wait_for_bot_speech_to_finish()
                         await self.end_call_with_reason(
                             EndTaskReason.USER_QUALIFIED.value
                         )
@@ -500,6 +510,16 @@ class PipecatEngine:
         else:
             # Setup LLM Context with Prompts and Functions
             await self._setup_llm_context(node)
+            # LLM APIs (OpenAI, Groq, etc.) require at least one user message to generate
+            # output. Without this kickoff message the context only has a system message and
+            # the API call returns nothing, causing complete silence on call pickup.
+            messages = list(self.context.messages)
+            messages.append({
+                "role": "user",
+                "content": "[Call connected. Please greet the caller warmly in Hindi right now.]",
+            })
+            self.context.set_messages(messages)
+            logger.debug("Added kickoff user message to trigger initial greeting")
 
     async def _handle_end_node(self, node: Node) -> None:
         """Handle end node execution."""
@@ -622,24 +642,11 @@ class PipecatEngine:
 
         # 1. KNOWLEDGE BASE USAGE — placed FIRST for maximum visibility
         kb_instruction = (
-            "\n# KNOWLEDGE BASE USAGE — YOU MUST USE THIS FOR EVERY FACTUAL QUERY\n"
-            "You have access to the company's RAG knowledge base via the 'retrieve_from_knowledge_base' tool.\n"
-            "\n"
-            "## WHEN TO CALL THE TOOL:\n"
-            "- When the user asks ANY question about the company, its policies, services, products, pricing, availability, or facts.\n"
-            "- When the user asks about specific documents, procedures, terms, or conditions.\n"
-            "- When the user asks 'What is...', 'Tell me about...', 'How do I...', 'Do you have...', 'Can you...' related to the business.\n"
-            "- If you are unsure whether to use your general knowledge or the knowledge base, ALWAYS call the tool.\n"
-            "\n"
-            "## HOW TO USE THE TOOL:\n"
-            "- Before answering, call 'retrieve_from_knowledge_base' with the user's question as the 'query' parameter.\n"
-            "- Natural phrasing before calling: 'Let me look that up for you...' or 'One moment, I'll check our records...'\n"
-            "- After receiving the result, use the retrieved data naturally to answer. Do not mention that you got it from a document or tool.\n"
-            "\n"
-            "## CRITICAL RULES:\n"
-            "- NEVER guess or answer from your general knowledge when the user asks about the company.\n"
-            "- If the tool returns no results, respond with: 'I'm sorry, I couldn't find that information in our records.'\n"
-            "- NEVER make up information. Hallucination is strictly forbidden."
+            "\n# KNOWLEDGE BASE\n"
+            "- Use the 'retrieve_from_knowledge_base' tool for ANY question about the company, its policies, services, products, pricing, or facts.\n"
+            "- Never guess company information. Use the tool. If it returns nothing, say you couldn't find that information.\n"
+            "- Phrase naturally before calling: 'Let me look that up...' or 'One moment...'\n"
+            "- After receiving results, answer naturally. Never mention the tool or document."
         )
         system_parts.append(kb_instruction)
 
@@ -650,72 +657,81 @@ class PipecatEngine:
         if formatted_node_prompt:
             system_parts.append(f"## CURRENT SCRIPT / TASK:\n{formatted_node_prompt}")
 
-        # 3. CORE CONVERSATIONAL FRAMEWORK
+        # 3. AGENT IDENTITY
+        agent_identity = (
+            "\n# YOUR IDENTITY\n"
+            "- **Your name is Riya.** You are a female voice agent.\n"
+            "- You are calling on behalf of **Surya International**.\n"
+            "- **You are FEMALE.** Use feminine Hindi grammar at all times.\n"
+            "- Always say **'bol rahi hu'** (बोल रही हूँ), **'kar rahi hu'** (कर रही हूँ), **'ja rahi hu'** (जा रही हूँ) — never the masculine forms.\n"
+            "- Speak in a warm, polite female tone befitting a professional calling a customer."
+        )
+        system_parts.append(agent_identity)
+
+        # 4. CORE CONVERSATIONAL FRAMEWORK
         human_instructions = (
-            "\n# CORE CONVERSATIONAL FRAMEWORK\n"
-            "**YOU ARE A HIGHLY INTELLIGENT, RESPONSIVE, AND HUMAN-LIKE AI ASSISTANT:**\n"
-            "\n"
-            "## 1. INTENT & RELEVANCE ENFORCEMENT\n"
-            "- **EXTRACT INTENT:** Before every word of response, identify EXACTLY what the user is asking. Align your answer strictly with their intent.\n"
-            "- **DIRECT ANSWERS:** Never ignore or bypass a direct question. Provide a precise, accurate answer FIRST before steering back to the conversation script.\n"
-            "- **ANTI-RANDOMNESS:** Do not generate creative, off-topic, or vague responses. If unsure of user intent, ask a brief, helpful clarification question.\n"
-            "\n"
-            "## 2. CONTEXT & CONSISTENCY\n"
-            "- **HISTORY AWARENESS:** Use the conversation history to maintain perfect continuity. Never repeat yourself or contradict earlier statements.\n"
-            "- **STATE TRACKING:** Be aware of where you are in the conversation flow and respect the user's progress.\n"
-            "\n"
-            "## 3. RESPONSE STRUCTURE (A-A-G)\n"
-            "Follow this 3-part logic for every response:\n"
-            "1. **ACKNOWLEDGE:** Briefly confirm you understood their query (e.g., 'Got it', 'I see what you mean').\n"
-            "2. **ANSWER:** Provide the exact, direct information requested.\n"
-            "3. **GUIDE (Optional):** Naturally transition back to the main goal or ask a relevant follow-up.\n"
-            "\n"
-            "## 4. EFFECTIVE SPEECH & PERSONALITY\n"
-            "- **NATURAL TONE:** Speak like a friendly human on a phone call. Use natural conversational fillers appropriately.\n"
-            "- **CONCISE OUTPUT:** Keep responses brief (15-35 words) for optimal speech delivery.\n"
-            "- **INTERRUPTIBILITY:** If the user speaks while you are talking, STOP immediately and listen.\n"
-            "- **NO NOISE RESPONSE:** If input is just background noise or silence, DO NOT respond."
+            "\n# CORE RULES\n"
+            "- **Responsive:** You are a voice agent. Greet the user and respond to everything they say.\n"
+            "- **Direct answers:** Answer the user's question first, then steer back to the goal.\n"
+            "- **Brief:** 15-35 words max per response.\n"
+            "- **Context:** Use conversation history. Never repeat or contradict yourself.\n"
+            "- **Tone:** Friendly human on a phone call. Natural Hindi.\n"
+            "- **Interrupt:** If user speaks while you are talking, stop immediately and listen.\n"
+            "- **Noise:** Do not respond to silence or background noise."
         )
         system_parts.append(human_instructions)
 
-        # 4. USING TOOLS NATURALLY
+        # 5. USING TOOLS NATURALLY
         tool_guidelines = (
-            "\n# USING TOOLS NATURALLY\n"
-            "- Calculator: 'Let me calculate that...'\n"
-            "- Time queries: 'Let me check the time...'\n"
-            "- Never mention 'API', 'function', or 'database'.\n"
-            "- Sound like you're personally helping, not processing requests."
+            "\n# TOOLS\n"
+            "- Never mention 'API', 'function', or 'database'. Sound like you're personally helping."
         )
         system_parts.append(tool_guidelines)
 
-        # 5. MULTILINGUAL SUPPORT
+        # 5a. CALL TRANSFER SCRIPT
+        # Check if any transfer call tool is available for this node
+        has_transfer_tool = any(
+            fn.name for fn in functions
+            if hasattr(fn, "name") and "transfer" in fn.name.lower()
+        ) if functions else False
+
+        if has_transfer_tool:
+            transfer_script = (
+                "\n# CALL TRANSFER — MANDATORY SCRIPT\n"
+                "When the user asks about pricing, plans, detailed product information, or wants to speak to an executive:\n"
+                "\n"
+                "TURN A — Your ONLY response: Say EXACTLY 'क्या आप इस बारे में और जानना चाहते हैं?'\n"
+                "  → Stop speaking. Wait for the user to reply. Do NOT call any tool yet.\n"
+                "\n"
+                "TURN B — Only after user says yes/haan/haan ji/theek hai/bilkul to TURN A:\n"
+                "  Say EXACTLY 'क्या मैं अपने executive से आपको connect करूं?'\n"
+                "  → Stop speaking. Wait for the user to reply. Do NOT call any tool yet.\n"
+                "\n"
+                "TURN C — Only after user says yes/haan/haan ji/theek hai/bilkul to TURN B:\n"
+                "  IMMEDIATELY call the call transfer tool. Say NOTHING before calling it.\n"
+                "\n"
+                "RULES:\n"
+                "- Each TURN needs a fresh YES from the user before you move to the next TURN.\n"
+                "- A yes to TURN A does NOT mean yes to TURN B. Ask TURN B and wait again.\n"
+                "- If the user declines at any TURN, stop the transfer flow and continue normally.\n"
+                "- Never call the transfer tool before completing both TURN A and TURN B."
+            )
+            system_parts.append(transfer_script)
+
+        # 6. HINDI LANGUAGE ONLY
         multilingual_instructions = (
-            "\n# MULTILINGUAL SUPPORT - INDIAN LANGUAGES\n"
-            "## LANGUAGE DETECTION & RESPONSE:\n"
-            "- ALWAYS listen carefully to detect the user's language from their FIRST word.\n"
-            "- PRIMARY LANGUAGE: Hindi (hi-IN) - Default to Hindi unless user clearly uses another language.\n"
-            "- AUTO-DETECT: Automatically identify which Indian language the user is speaking.\n"
-            "- MIRROR: Respond in the EXACT same language the user uses.\n"
-            "- LANGUAGE MIXING: Handle Hinglish, Tanglish (Tamil+English), etc., naturally.\n"
-            "\n"
-            "## SUPPORTED 22 INDIAN LANGUAGES:\n"
-            "Hindi (hi-IN) PRIMARY/DEFAULT, Bengali, Tamil, Telugu, Marathi, Gujarati, Kannada, Malayalam, Punjabi, Odia, Assamese, Indian English, plus 10+ others.\n"
-            "\n"
-            "## LANGUAGE BEHAVIOR:\n"
-            "- Start in HINDI by default if language is unclear.\n"
-            "- Switch instantly when you detect a different language.\n"
-            "- Write numbers as words: 'twenty-five' not '25'.\n"
-            "- Use native greetings like 'Namaste' (Hindi), 'Vanakkam' (Tamil)."
+            "\n# LANGUAGE - HINDI ONLY\n"
+            "- ALWAYS speak in Hindi (hi-IN). Never switch to English or any other language.\n"
+            "- Use natural Hindi greetings: नमस्ते, नमस्कार.\n"
+            "- Keep the tone warm, professional, and natural.\n"
+            "- Hindi is your only language. No exceptions."
         )
         system_parts.append(multilingual_instructions)
 
-        # 6. SPEECH OUTPUT GUIDELINES
+        # 7. SPEECH OUTPUT GUIDELINES
         speech_optimization = (
-            "\n# SPEECH OUTPUT GUIDELINES\n"
-            "- Responses will be spoken via text-to-speech.\n"
-            "- Avoid emojis, URLs, bullet points, or complex formatting.\n"
-            "- Use natural punctuation: commas, periods, question marks for rhythm.\n"
-            "- Be friendly, professional, and conversational."
+            "\n# SPEECH OUTPUT\n"
+            "- Responses will be spoken aloud. Avoid emojis, URLs, bullet points, or complex formatting."
         )
         system_parts.append(speech_optimization)
 
@@ -754,6 +770,28 @@ class PipecatEngine:
                 return True
 
         return False
+
+    async def _wait_for_bot_speech_to_finish(self, timeout_seconds: float = 8.0) -> None:
+        """Wait for the bot to start and then finish speaking its current turn.
+
+        Callers that need to end the call right after triggering a new LLM
+        generation (e.g. an End node's closing message) must wait here first,
+        or the call can end before that message is ever spoken. Bounded by
+        timeout_seconds so a turn with no speech (or a stuck generation)
+        can't hang the call indefinitely.
+        """
+        poll_interval = 0.05
+        max_iterations = max(1, int(timeout_seconds / poll_interval))
+
+        iterations = 0
+        while not self._bot_is_speaking and iterations < max_iterations:
+            await asyncio.sleep(poll_interval)
+            iterations += 1
+
+        iterations = 0
+        while self._bot_is_speaking and iterations < max_iterations:
+            await asyncio.sleep(poll_interval)
+            iterations += 1
 
     def create_user_idle_handler(self):
         """
@@ -819,6 +857,21 @@ class PipecatEngine:
     def is_call_disposed(self):
         """Check whether a call has been disposed by the engine"""
         return self._call_disposed
+
+    def set_transfer_pending(self, pending: bool) -> None:
+        """Mark whether a call-transfer redirect is in flight.
+
+        Args:
+            pending: True once a transfer_call tool has asked the provider to
+                redirect the live call; False once the transfer has resolved
+                (failed) and the call should be treated normally again.
+        """
+        logger.debug(f"Setting transfer pending state to: {pending}")
+        self._transfer_pending = pending
+
+    def is_transfer_pending(self) -> bool:
+        """Check whether a call-transfer redirect is currently in flight."""
+        return self._transfer_pending
 
     async def get_gathered_context(self) -> dict:
         """Get the gathered context including extracted variables."""

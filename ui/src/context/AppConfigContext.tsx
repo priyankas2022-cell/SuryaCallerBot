@@ -1,8 +1,7 @@
+
 'use client';
 
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
-
-import { client } from '@/client/client.gen';
 
 interface AppConfig {
     uiVersion: string;
@@ -38,11 +37,6 @@ export function AppConfigProvider({ children }: { children: ReactNode }) {
         fetch('/api/config/version')
             .then((res) => res.json())
             .then((data) => {
-                // Use clientApiBaseUrl (filtered for browser-reachable URLs)
-                // to configure the API client; keep backendApiEndpoint for display
-                if (data.clientApiBaseUrl) {
-                    client.setConfig({ baseUrl: data.clientApiBaseUrl });
-                }
                 setConfig({
                     uiVersion: data.ui || 'dev',
                     apiVersion: data.api || 'unknown',

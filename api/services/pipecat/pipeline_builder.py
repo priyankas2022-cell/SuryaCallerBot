@@ -39,6 +39,7 @@ def build_pipeline(
     pipeline_engine_callback_processor,
     pipeline_metrics_aggregator,
     voicemail_detector=None,
+    language_switch_processor=None,
 ):
     """Build the main pipeline with all components.
 
@@ -47,6 +48,8 @@ def build_pipeline(
         voicemail_detector: Optional native pipecat VoicemailDetector. When provided,
             inserts voicemail detection after STT. Note: We don't use the TTS gate
             to avoid blocking TTS frames during classification.
+        language_switch_processor: Optional LanguageSwitchProcessor that detects user language
+            from TranscriptionFrames and updates the TTS language accordingly.
     """
     # Build processors list with optional voicemail detection
     processors = [
@@ -64,6 +67,12 @@ def build_pipeline(
     if voicemail_detector:
         logger.info("Adding native voicemail detector to pipeline")
         processors.append(voicemail_detector.detector())
+
+    # Insert language switch processor before user context aggregator so TTS
+    # language is updated before the LLM generates a response
+    if language_switch_processor:
+        logger.info("Adding language switch processor to pipeline")
+        processors.append(language_switch_processor)
 
     # Continue with the rest of the pipeline
     processors.extend(

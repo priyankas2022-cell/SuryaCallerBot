@@ -117,6 +117,7 @@ async def get_backend_endpoints() -> tuple[str, str]:
     try:
         tunnel_urls = await TunnelURLProvider.get_tunnel_urls()
         if tunnel_urls:
+            _validate_url(tunnel_urls[0])
             logger.info(f"Using automatically detected tunnel: {tunnel_urls[0]}")
             return tunnel_urls
     except Exception as e:
@@ -150,8 +151,18 @@ async def get_backend_endpoints() -> tuple[str, str]:
             )
 
     # If we get here, no tunnel and no env var
-    logger.error("No backend endpoint available (no tunnel detected and no BACKEND_API_ENDPOINT set)")
-    raise ValueError(
-        "No backend URL available. Please ensure the cloudflared service is running "
-        "or set the BACKEND_API_ENDPOINT environment variable."
-    )
+    # Last resort: use host.docker.internal for Docker Desktop (Windows/Mac)
+    # This allows local testing when no tunnel is configured
+    fallback_url = "http://host.docker.internal:8000"
+    logger.warning(f"No tunnel or BACKEND_API_ENDPOINT; falling back to {fallback_url}")
+    try:
+        _validate_url(fallback_url)
+        http_url = fallback_url
+        ws_url = fallback_url.replace("http://", "ws://")
+        return http_url, ws_url
+    except Exception:
+        logger.error("No backend endpoint available (no tunnel detected and no BACKEND_API_ENDPOINT set)")
+        raise ValueError(
+            "No backend URL available. Please ensure the cloudflared service is running "
+            "or set the BACKEND_API_ENDPOINT environment variable."
+        )

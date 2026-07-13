@@ -871,11 +871,16 @@ class SarvamTTSService(InterruptibleTTSService):
             await self.flush_audio()
 
     async def _update_settings(self, settings: Mapping[str, Any]):
-        """Update service settings and reconnect if voice changed."""
+        """Update service settings and reconnect if voice or language changed."""
         prev_voice = self._voice_id
+        prev_language = self._settings.get("target_language_code")
         await super()._update_settings(settings)
-        if not prev_voice == self._voice_id:
-            logger.info(f"Switching TTS voice to: [{self._voice_id}]")
+        new_language = self._settings.get("target_language_code")
+        voice_changed = prev_voice != self._voice_id
+        language_changed = prev_language != new_language
+        if voice_changed or language_changed:
+            if language_changed:
+                logger.info(f"Switching TTS language to: [{new_language}]")
             await self._send_config()
 
     async def _connect(self):

@@ -27,6 +27,7 @@ def register_event_handlers(
     in_memory_logs_buffer: InMemoryLogsBuffer,
     pipeline_metrics_aggregator: PipelineMetricsAggregator,
     audio_config=AudioConfig,
+    client_already_connected: bool = False,
 ):
     """Register all event handlers for transport and task events.
 
@@ -47,12 +48,21 @@ def register_event_handlers(
         sample_rate=sample_rate,
         num_channels=num_channels,
     )
-    # Track both events to ensure LLM is only triggered after both occur
+    # Track both events to ensure LLM is only triggered after both occur.
+    # For WebSocket-based telephony transports (Twilio, Vonage, Vobiz, etc.) the
+    # WebSocket is already accepted and streaming before the pipeline starts, so
+    # on_client_connected never fires. client_already_connected=True pre-sets the
+    # flag so on_pipeline_started alone is sufficient to trigger the first LLM turn.
     ready_state = {
         "pipeline_started": False,
-        "client_connected": False,
+        "client_connected": client_already_connected,
         "llm_triggered": False,
     }
+
+    if client_already_connected:
+        logger.debug(
+            f"[run {workflow_run_id}] WebSocket transport: marking client as already connected"
+        )
 
     async def maybe_trigger_llm():
         """Trigger LLM only after both pipeline_started and client_connected events."""
@@ -66,6 +76,12 @@ def register_event_handlers(
                 "Both pipeline_started and client_connected received - triggering initial LLM generation"
             )
             await engine.llm.queue_frame(LLMContextFrame(engine.context))
+        else:
+            logger.debug(
+                f"[run {workflow_run_id}] maybe_trigger_llm: pipeline_started={ready_state['pipeline_started']}, "
+                f"client_connected={ready_state['client_connected']}, "
+                f"llm_triggered={ready_state['llm_triggered']}"
+            )
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(_transport, _participant):
@@ -85,9 +101,25 @@ def register_event_handlers(
         # Stop recordings
         await audio_buffer.stop_recording()
 
-        await engine.end_call_with_reason(
-            EndTaskReason.USER_HANGUP.value, abort_immediately=True
-        )
+        if engine.is_transfer_pending():
+            # A transfer_call tool just asked the telephony provider to redirect
+            # this live call (e.g. Vobiz). Providers that redirect the same call
+            # in place close our transport as part of that redirect -- that is
+            # not the user hanging up, so end gracefully with the transfer
+            # disposition instead of aborting with USER_HANGUP. end_call_with_reason
+            # is idempotent (guarded by _call_disposed), so this is safe even if
+            # the transfer-call handler also ends the call itself.
+            logger.info(
+                "Transport disconnected while a call transfer was pending; "
+                "treating as a transfer handoff, not a user hangup"
+            )
+            await engine.end_call_with_reason(
+                EndTaskReason.TRANSFER_CALL.value, abort_immediately=False
+            )
+        else:
+            await engine.end_call_with_reason(
+                EndTaskReason.USER_HANGUP.value, abort_immediately=True
+            )
 
     @task.event_handler("on_pipeline_started")
     async def on_pipeline_started(_task: PipelineTask, _frame: Frame):

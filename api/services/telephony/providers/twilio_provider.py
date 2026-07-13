@@ -106,17 +106,31 @@ class TwilioProvider(TelephonyProvider):
             auth = aiohttp.BasicAuth(self.account_sid, self.auth_token)
             async with session.post(endpoint, data=data, auth=auth) as response:
                 if response.status != 201:
-                    error_data = await response.json()
+                    try:
+                        error_data = await response.json()
+                        error_detail = json.dumps(error_data)
+                    except Exception:
+                        error_text = await response.text()
+                        error_detail = error_text[:500] if error_text else f"HTTP {response.status}"
                     raise HTTPException(
-                        status_code=response.status, detail=json.dumps(error_data)
+                        status_code=response.status, detail=error_detail
                     )
 
-                response_data = await response.json()
+                try:
+                    response_data = await response.json()
+                except Exception as parse_err:
+                    raw_text = await response.text()
+                    logger.error(f"Failed to parse Twilio 201 response as JSON: {parse_err}. Body: {raw_text[:200]}")
+                    raise HTTPException(status_code=502, detail=f"Unexpected response from Twilio: {raw_text[:200]}")
+
+                call_sid = response_data.get("sid")
+                if not call_sid:
+                    raise HTTPException(status_code=502, detail=f"Twilio response missing 'sid': {response_data}")
 
                 return CallInitiationResult(
-                    call_id=response_data["sid"],
+                    call_id=call_sid,
                     status=response_data.get("status", "queued"),
-                    provider_metadata={"call_id": response_data["sid"]},
+                    provider_metadata={"call_id": call_sid},
                     raw_response=response_data,
                 )
 
@@ -475,6 +489,7 @@ class TwilioProvider(TelephonyProvider):
         transfer_id: str,
         conference_name: str,
         timeout: int = 30,
+        original_call_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Dict[str, Any]:
         """
@@ -488,6 +503,8 @@ class TwilioProvider(TelephonyProvider):
             transfer_id: Unique identifier for tracking this transfer
             conference_name: Name of the conference to join the destination into
             timeout: Transfer timeout in seconds
+            original_call_id: Unused by Twilio (it dials a separate leg rather than
+                redirecting the live call); accepted for interface compatibility.
             **kwargs: Additional Twilio-specific parameters
 
         Returns:
